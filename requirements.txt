@@ -1,0 +1,12 @@
+pdfplumber
+rank-bm25
+sentence-transformers
+openpyxl
+pytest
+fpdf2
+fastapi
+uvicorn
+sqlalchemy
+python-multipart
+pandas
+numpy

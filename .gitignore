@@ -1,0 +1,24 @@
+# Python build/cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# Database files
+*.db
+soa_guardian.db
+
+# User uploaded statements & template files
+uploads/*
+!uploads/.gitkeep
+
+# Temporary/Dummy Excel & PDF exports generated during runs or tests
+tests/dummy_*.xlsx
+tests/dummy_*.pdf
+tests/reconciliation_export_*.xlsx
+reconciliation_export_*.xlsx
+*.log

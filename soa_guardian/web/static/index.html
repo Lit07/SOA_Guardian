@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SoA Guardian — Reconciliation Dashboard</title>
+    <!-- Modern Typography Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+    <style>
+        /* Unified Single-Page layout styles */
+        .file-inputs-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .file-input-card {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .file-input-card label {
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        .file-drop-area {
+            border: 2px dashed rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 110px;
+        }
+
+        .file-drop-area:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.05);
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+        }
+
+        .file-drop-area.dragover {
+            border-color: #00ffff;
+            background: rgba(0, 255, 255, 0.05);
+        }
+
+        .area-icon {
+            font-size: 24px;
+            margin-bottom: 6px;
+        }
+
+        .file-drop-area p {
+            margin: 0;
+            font-weight: 500;
+            font-size: 13px;
+            color: #fff;
+            word-break: break-all;
+        }
+
+        .file-drop-area .help-text {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.45);
+            margin-top: 4px;
+        }
+
+        .btn-large {
+            padding: 12px 24px;
+            font-weight: 600;
+            border-radius: 8px;
+        }
+
+        /* Adjust history block since navigation tabs are removed */
+        .sidebar .history-section {
+            margin-top: 24px;
+            height: calc(100% - 70px);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar .history-section h3 {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar containing History logs -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">🛡️</div>
+                <h2>SoA Guardian</h2>
+            </div>
+            
+            <div class="history-section">
+                <h3>Statement Log History</h3>
+                <div class="history-list" id="history-list">
+                    <p class="empty-state">No processed statements yet.</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="top-bar">
+                <h1 id="page-title">Statement Reconciliation Engine</h1>
+                <div class="user-profile">
+                    <div class="status-indicator-green"></div>
+                    <span class="status-text">System Active</span>
+                </div>
+            </header>
+
+            <!-- Consolidated Single-Page Dashboard Content -->
+            <div class="dashboard-grid">
+                
+                <!-- Section 1: Unified Form upload inputs -->
+                <div class="glass-panel upload-panel-container" style="margin-bottom: 24px;">
+                    <h3>Reconcile Statement of Account</h3>
+                    <p class="section-desc" style="margin-bottom: 20px;">Upload a Statement of Account (SoA) file along with mapping table registry and target layout template files to parse, verify balance formulas, and generate standard reports.</p>
+                    
+                    <form id="form-upload-statement">
+                        <div class="file-inputs-row">
+                            <!-- Input 1: SOA Statement file -->
+                            <div class="file-input-card">
+                                <label>1. Statement of Account Document (Required)</label>
+                                <div class="file-drop-area" id="soa-drop-area">
+                                    <span class="area-icon">📄</span>
+                                    <p id="soa-file-label">Drag & drop SOA or browse</p>
+                                    <span class="help-text">PDF, CSV, or XLSX formats</span>
+                                    <input type="file" id="file-input" accept=".pdf,.csv,.xlsx" required style="display:none;">
+                                </div>
+                            </div>
+                            
+                            <!-- Input 2: Custom Mapping table -->
+                            <div class="file-input-card">
+                                <label>2. Mappings Registry Sheet (Optional)</label>
+                                <div class="file-drop-area" id="mapping-drop-area">
+                                    <span class="area-icon">🗺️</span>
+                                    <p id="mapping-file-label">Drag & drop mappings or browse</p>
+                                    <span class="help-text">Excel .xlsx containing 'Final_mappings'</span>
+                                    <input type="file" id="mapping-file-input" name="mapping_file" accept=".xlsx" style="display:none;">
+                                </div>
+                            </div>
+                            
+                            <!-- Input 3: Target template style -->
+                            <div class="file-input-card">
+                                <label>3. Target Output Template (Optional)</label>
+                                <div class="file-drop-area" id="template-drop-area">
+                                    <span class="area-icon">📊</span>
+                                    <p id="template-file-label">Drag & drop template or browse</p>
+                                    <span class="help-text">Excel .xlsx target format template</span>
+                                    <input type="file" id="template-file-input" name="template_file" accept=".xlsx" style="display:none;">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row" style="margin-top: 8px;">
+                            <div class="form-group">
+                                <label for="universal-currency">Universal Currency Target</label>
+                                <select id="universal-currency" name="universal_currency">
+                                    <option value="USD">USD ($)</option>
+                                    <option value="SGD" selected>SGD (S$)</option>
+                                    <option value="EUR">EUR (€)</option>
+                                    <option value="GBP">GBP (£)</option>
+                                    <option value="MYR">MYR (RM)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="exchange-rate">Applied Exchange Rate</label>
+                                <input type="number" id="exchange-rate" name="exchange_rate" step="0.0001" value="1.0000" min="0.0001">
+                                <small class="form-help">Conversion rate relative to target currency</small>
+                            </div>
+                            <div class="form-group flex-row" style="align-items: center; justify-content: center; margin-top: 16px;">
+                                <input type="checkbox" id="flat-table" name="flat_table">
+                                <label for="flat-table" class="checkbox-label" style="font-size: 13px;">Export as Flat Ledger (no headers/logs tabs)</label>
+                            </div>
+                            <div class="form-group" style="justify-content: flex-end; margin-top: 16px;">
+                                <button type="submit" class="btn btn-primary btn-large" id="btn-submit-upload" style="width:100%; height:44px;">🛡️ Start Safe Ingestion & Verification</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Section 2: Results Display Panel (populated after processing) -->
+                <div id="results-area" style="display:none;">
+                    <!-- Stats Cards Summary -->
+                    <div class="stats-row" style="margin-bottom: 24px;">
+                        <div class="stat-card">
+                            <div class="stat-title">Validation Status</div>
+                            <div class="stat-value" id="stat-status">—</div>
+                            <div class="stat-subtitle" id="stat-status-sub">No statement selected</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-title">Reconciliation Inbalance</div>
+                            <div class="stat-value" id="stat-imbalance">$0.00</div>
+                            <div class="stat-subtitle" id="stat-imbalance-sub">Calculated - Reported</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-title">Statement Period</div>
+                            <div class="stat-value small" id="stat-period">—</div>
+                            <div class="stat-subtitle" id="stat-period-sub">Date range</div>
+                        </div>
+                        <div class="stat-card font-glow">
+                            <div class="stat-title">Extraction Confidence</div>
+                            <div class="stat-value" id="stat-confidence">0.0%</div>
+                            <div class="stat-subtitle" id="stat-confidence-sub">Confidence score</div>
+                        </div>
+                    </div>
+
+                    <!-- Statement Metadata Details Grid -->
+                    <div class="glass-panel summary-panel" style="margin-bottom: 24px;">
+                        <h3>Statement Metadata</h3>
+                        <div class="metadata-grid" id="metadata-grid">
+                            <div class="meta-item"><span class="meta-label">Vendor Name:</span> <span id="meta-vendor">—</span></div>
+                            <div class="meta-item"><span class="meta-label">UEN / GST:</span> <span id="meta-uen">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Bank Reference:</span> <span id="meta-bank">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Account No:</span> <span id="meta-account">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Customer ID:</span> <span id="meta-customer">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Salesman ID:</span> <span id="meta-salesman">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Term Code:</span> <span id="meta-term">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Source Pages:</span> <span id="meta-pages">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Reported Opening:</span> <span id="meta-opening">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Reported Closing:</span> <span id="meta-closing">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Currency Target:</span> <span id="meta-currency">—</span></div>
+                            <div class="meta-item"><span class="meta-label">Exchange Rate:</span> <span id="meta-rate">—</span></div>
+                        </div>
+                        <div class="warning-banner" id="warning-banner" style="display:none; margin-top:16px;">
+                            <strong>⚠️ Anomalies & Warnings:</strong>
+                            <ul id="warning-list" style="margin: 6px 0 0 16px; padding: 0;"></ul>
+                        </div>
+                    </div>
+
+                    <!-- Transaction Ledger Table -->
+                    <div class="glass-panel ledger-panel">
+                        <div class="ledger-header">
+                            <h3>Reconciled Transaction Ledger</h3>
+                            <div class="ledger-actions">
+                                <label class="checkbox-label" style="margin-right: 16px; display: inline-flex; align-items: center; gap: 8px; color: var(--primary-color); font-weight: 600;">
+                                    <input type="checkbox" id="chk-filter-issues" style="width: 15px; height: 15px;"> ⚠️ Show Issues Only
+                                </label>
+                                <span class="tip-edit">💡 Double-click cells to edit and trigger real-time math validation</span>
+                                <button class="btn btn-primary" id="btn-export-formatted">📥 Download Statement Report (XLSX)</button>
+                                <button class="btn btn-secondary" id="btn-export-flat" style="display:none;">📥 Download Flat Ledger</button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table id="ledger-table">
+                                <thead>
+                                    <!-- Populated dynamically -->
+                                </thead>
+                                <tbody id="ledger-body">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Side Panel: Audit Logs Drawer -->
+        <aside class="audit-drawer" id="audit-drawer">
+            <div class="drawer-header">
+                <h3>🔍 Validation Audit Log</h3>
+                <button class="btn-close-drawer" id="btn-close-drawer">✕</button>
+            </div>
+            
+            <div class="drawer-content">
+                <div class="audit-section">
+                    <h4>Auto-Repair Record</h4>
+                    <div class="audit-list" id="repair-log-list">
+                        <p class="empty-state">No auto-repairs performed.</p>
+                    </div>
+                </div>
+                
+                <div class="audit-section">
+                    <h4>Unparsed Statement Lines</h4>
+                    <div class="audit-list" id="unparsed-lines-list">
+                        <p class="empty-state">No unparsed lines recorded.</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Frontend Scripting Logic -->
+    <script>
+        // State variables
+        let currentStatementId = null;
+        let statementData = null;
+
+        // DOM elements
+        const buttons = {
+            closeDrawer: document.getElementById('btn-close-drawer'),
+            exportFormatted: document.getElementById('btn-export-formatted'),
+            exportFlat: document.getElementById('btn-export-flat'),
+        };
+
+        const uploadForm = document.getElementById('form-upload-statement');
+        const fileInput = document.getElementById('file-input');
+        const mappingInput = document.getElementById('mapping-file-input');
+        const templateInput = document.getElementById('template-file-input');
+        
+        const soaArea = document.getElementById('soa-drop-area');
+        const mappingArea = document.getElementById('mapping-drop-area');
+        const templateArea = document.getElementById('template-drop-area');
+        
+        const historyList = document.getElementById('history-list');
+        const auditDrawer = document.getElementById('audit-drawer');
+
+        // Close drawer trigger
+        buttons.closeDrawer.addEventListener('click', () => {
+            auditDrawer.classList.remove('open');
+        });
+
+        // Click behaviors to browse files
+        soaArea.addEventListener('click', () => fileInput.click());
+        mappingArea.addEventListener('click', () => mappingInput.click());
+        templateArea.addEventListener('click', () => templateInput.click());
+
+        // File selection label updates
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                document.getElementById('soa-file-label').innerHTML = `<strong>Selected:</strong> ${fileInput.files[0].name}`;
+                soaArea.style.borderColor = "#00ff88";
+            } else {
+                document.getElementById('soa-file-label').innerText = "Drag & drop SOA or browse";
+                soaArea.style.borderColor = "";
+            }
+        });
+
+        mappingInput.addEventListener('change', () => {
+            if (mappingInput.files.length > 0) {
+                document.getElementById('mapping-file-label').innerHTML = `<strong>Selected:</strong> ${mappingInput.files[0].name}`;
+                mappingArea.style.borderColor = "#00ff88";
+            } else {
+                document.getElementById('mapping-file-label').innerText = "Drag & drop mappings or browse";
+                mappingArea.style.borderColor = "";
+            }
+        });
+
+        templateInput.addEventListener('change', () => {
+            if (templateInput.files.length > 0) {
+                document.getElementById('template-file-label').innerHTML = `<strong>Selected:</strong> ${templateInput.files[0].name}`;
+                templateArea.style.borderColor = "#00ff88";
+            } else {
+                document.getElementById('template-file-label').innerText = "Drag & drop template or browse";
+                templateArea.style.borderColor = "";
+            }
+        });
+
+        // Drag & drop handlers for main SOA drop area
+        soaArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            soaArea.classList.add('dragover');
+        });
+        soaArea.addEventListener('dragleave', () => {
+            soaArea.classList.remove('dragover');
+        });
+        soaArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            soaArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                fileInput.dispatchEvent(new Event('change'));
+            }
+        });
+
+        // Form submit handler
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (fileInput.files.length === 0) return;
+            
+            const submitBtn = document.getElementById('btn-submit-upload');
+            submitBtn.disabled = true;
+            submitBtn.innerText = "🛡️ Starting Invariant Verification Loop...";
+            
+            const formData = new FormData(uploadForm);
+            formData.append('file', fileInput.files[0]);
+            
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || "Verification engine crash");
+                }
+                
+                const result = await response.json();
+                currentStatementId = result.statement_id;
+                
+                // Clear file inputs state
+                fileInput.value = "";
+                mappingInput.value = "";
+                templateInput.value = "";
+                
+                // Trigger change events to reset label formatting
+                fileInput.dispatchEvent(new Event('change'));
+                mappingInput.dispatchEvent(new Event('change'));
+                templateInput.dispatchEvent(new Event('change'));
+                
+                // Refresh records list and dashboard view
+                await loadHistory();
+                await loadStatementDetails(currentStatementId);
+            } catch (err) {
+                alert(`Reconciliation Pipeline Error: ${err.message}`);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "🛡️ Start Safe Ingestion & Verification";
+            }
+        });
+
+        // Load history records list
+        async function loadHistory() {
+            try {
+                const response = await fetch('/api/statements');
+                const data = await response.json();
+                
+                if (data.length === 0) {
+                    historyList.innerHTML = '<p class="empty-state">No processed statements yet.</p>';
+                    return;
+                }
+                
+                historyList.innerHTML = data.map(item => `
+                    <div class="history-item ${item.id === currentStatementId ? 'active' : ''}" onclick="selectStatement(${item.id})">
+                        <div class="history-name">${item.vendor_name || item.bank_name || 'Unnamed Statement'}</div>
+                        <div class="history-meta">
+                            <span>ID: ${item.id}</span> • 
+                            <span class="badge ${item.review_required ? 'badge-red' : 'badge-green'}">
+                                ${item.review_required ? 'REVIEWS' : 'RECONCILED'}
+                            </span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error("History fetch failed:", err);
+            }
+        }
+
+        function selectStatement(id) {
+            currentStatementId = id;
+            loadStatementDetails(id);
+        }
+
+        // Fetch details
+        async function loadStatementDetails(id) {
+            try {
+                const response = await fetch(`/api/statements/${id}`);
+                if (!response.ok) throw new Error("Failed to load canonical data details");
+                
+                statementData = await response.json();
+                renderDashboard();
+                loadHistory(); // Reload logs to update active visual indicators
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+            }
+        }
+
+        // Render dashboard dynamically
+        function renderDashboard() {
+            if (!statementData) return;
+            
+            const stmt = statementData.statement;
+            const txs = statementData.transactions;
+            const logs = statementData.audit_logs;
+            
+            // Show results container
+            document.getElementById('results-area').style.display = 'block';
+            
+            // Update stats indicators
+            const statusCard = document.getElementById('stat-status');
+            const statusSub = document.getElementById('stat-status-sub');
+            if (stmt.review_required) {
+                statusCard.innerText = "FLAGGED";
+                statusCard.className = "stat-value error-text";
+                statusSub.innerText = "Discrepancies identified";
+            } else {
+                statusCard.innerText = "RECONCILED";
+                statusCard.className = "stat-value success-text";
+                statusSub.innerText = "Mathematical validation clean";
+            }
+            
+            // Calculate imbalance gap
+            const totalDebits = txs.reduce((sum, tx) => sum + (tx.debit_amount || 0.0), 0.0);
+            const totalCredits = txs.reduce((sum, tx) => sum + (tx.credit_amount || 0.0), 0.0);
+            const calculatedClosing = stmt.opening_balance + totalCredits - totalDebits;
+            const imbalance = calculatedClosing - stmt.closing_balance;
+            
+            document.getElementById('stat-imbalance').innerText = `$${imbalance.toFixed(2)}`;
+            document.getElementById('stat-imbalance').className = `stat-value ${Math.abs(imbalance) > 0.01 ? 'error-text' : ''}`;
+            document.getElementById('stat-imbalance-sub').innerText = `Expected closing: $${calculatedClosing.toFixed(2)}`;
+            
+            document.getElementById('stat-period').innerText = stmt.statement_start_date && stmt.statement_end_date ? 
+                `${stmt.statement_start_date} to ${stmt.statement_end_date}` : "—";
+            document.getElementById('stat-period-sub').innerText = `Period span`;
+            
+            document.getElementById('stat-confidence').innerText = `${(stmt.confidence * 100).toFixed(1)}%`;
+            document.getElementById('stat-confidence-sub').innerText = `Confidence score`;
+
+            // Populate Metadata Grid values
+            document.getElementById('meta-vendor').innerText = stmt.vendor_name || "—";
+            document.getElementById('meta-uen').innerText = stmt.uen || "—";
+            document.getElementById('meta-bank').innerText = stmt.bank_name || "—";
+            document.getElementById('meta-account').innerText = stmt.account_number || "—";
+            document.getElementById('meta-customer').innerText = stmt.customer_id || "—";
+            document.getElementById('meta-salesman').innerText = stmt.salesman_id || "—";
+            document.getElementById('meta-term').innerText = stmt.term_code || "—";
+            document.getElementById('meta-pages').innerText = stmt.source_page || "—";
+            document.getElementById('meta-opening').innerText = stmt.opening_balance !== null ? `$${stmt.opening_balance.toFixed(2)}` : "—";
+            document.getElementById('meta-closing').innerText = stmt.closing_balance !== null ? `$${stmt.closing_balance.toFixed(2)}` : "—";
+            document.getElementById('meta-currency').innerText = stmt.universal_currency || "—";
+            document.getElementById('meta-rate').innerText = stmt.exchange_rate !== null ? stmt.exchange_rate.toFixed(4) : "—";
+
+            // Warning list block
+            const warnBanner = document.getElementById('warning-banner');
+            const warnList = document.getElementById('warning-list');
+            if (stmt.anomaly_flags && stmt.anomaly_flags.length > 0) {
+                warnBanner.style.display = 'block';
+                warnList.innerHTML = stmt.anomaly_flags.map(f => `<li>${f}</li>`).join('');
+            } else {
+                warnBanner.style.display = 'none';
+            }
+
+            // DYNAMIC HEADERS & LEDGER RENDERING
+            const ledgerTable = document.getElementById('ledger-table');
+            const thead = ledgerTable.querySelector('thead');
+            const tbody = document.getElementById('ledger-body');
+            
+            const outputFormatHeaders = stmt.output_format_headers || {
+                "Date": "transaction_date",
+                "Description": "description",
+                "Debit": "debit_amount",
+                "Credit": "credit_amount",
+                "Balance": "running_balance"
+            };
+            
+            const headerKeys = Object.keys(outputFormatHeaders);
+            
+            // Rebuild thead HTML
+            let theadHtml = "<tr>";
+            headerKeys.forEach(h => {
+                const field = outputFormatHeaders[h];
+                const isNumeric = ["debit_amount", "credit_amount", "running_balance", "universal_debit", "universal_credit", "universal_balance"].includes(field);
+                theadHtml += `<th class="${isNumeric ? 'text-right' : ''}">${h}</th>`;
+            });
+            theadHtml += "<th>Status</th><th>Actions</th></tr>";
+            thead.innerHTML = theadHtml;
+
+            // Rebuild tbody HTML
+            if (txs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${headerKeys.length + 2}" class="no-data">No transactions parsed.</td></tr>`;
+            } else {
+                tbody.innerHTML = txs.map(tx => {
+                    const statusClass = `status-${tx.status}`;
+                    const repairTooltip = tx.repair_info ? `title="Auto-Repaired: ${tx.repair_info.raw_value} -> ${tx.repair_info.corrected_value} (${tx.repair_info.reason})"` : '';
+                    
+                    let rowHtml = `<tr class="${statusClass}" ${repairTooltip}>`;
+                    headerKeys.forEach(h => {
+                        const field = outputFormatHeaders[h];
+                        const isNumeric = ["debit_amount", "credit_amount", "running_balance", "universal_debit", "universal_credit", "universal_balance"].includes(field);
+                        let val = tx[field];
+                        
+                        // Format display
+                        let displayVal = "";
+                        if (val !== null && val !== undefined) {
+                            if (typeof val === 'number') {
+                                displayVal = val.toFixed(2);
+                            } else {
+                                displayVal = String(val);
+                            }
+                        }
+                        
+                        // Inline-editable cells for standard transactional fields
+                        const editableClass = ["transaction_date", "description", "debit_amount", "credit_amount", "running_balance"].includes(field) ? "editable" : "";
+                        rowHtml += `<td class="${editableClass} ${isNumeric ? 'text-right' : ''}" data-id="${tx.id}" data-field="${field}">${displayVal}</td>`;
+                    });
+                    
+                    rowHtml += `
+                        <td>
+                            <span class="badge badge-${tx.status}">
+                                ${tx.status.toUpperCase()}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn-action" onclick="triggerEditRow(${tx.id})">✏️ Edit</button>
+                        </td>
+                    </tr>`;
+                    return rowHtml;
+                }).join('');
+                
+                addInlineEditingListeners();
+            }
+
+            // Render Audit logs Drawer details
+            const repairLogList = document.getElementById('repair-log-list');
+            const repairs = logs.filter(l => l.log_type === 'repair_attempt');
+            if (repairs.length === 0) {
+                repairLogList.innerHTML = '<p class="empty-state">No auto-repairs performed.</p>';
+            } else {
+                repairLogList.innerHTML = repairs.map(rep => `
+                    <div class="audit-item success">
+                        <div class="audit-field">${rep.field_location || 'Transaction Field'}</div>
+                        <div class="audit-change">
+                            <span class="old-val">${rep.raw_text}</span> ➔ 
+                            <span class="new-val">${rep.corrected_value}</span>
+                        </div>
+                        <div class="audit-reason">${rep.reason}</div>
+                    </div>
+                `).join('');
+            }
+            
+            const unparsedLinesList = document.getElementById('unparsed-lines-list');
+            const unparsed = logs.filter(l => l.log_type === 'unparsed_line');
+            if (unparsed.length === 0) {
+                unparsedLinesList.innerHTML = '<p class="empty-state">No unparsed lines recorded.</p>';
+            } else {
+                unparsedLinesList.innerHTML = unparsed.map(line => `
+                    <div class="audit-item error">
+                        <div class="audit-field">Page ${line.source_page || 'Unknown'}</div>
+                        <div class="audit-change text-raw">"${line.raw_text}"</div>
+                        <div class="audit-reason">${line.reason}</div>
+                    </div>
+                `).join('');
+            }
+            
+            // Pop open drawer automatically if review is required
+            if (stmt.review_required) {
+                auditDrawer.classList.add('open');
+            } else {
+                auditDrawer.classList.remove('open');
+            }
+            
+            // Apply filter logic if checked
+            applyIssuesFilter();
+        }
+
+        // Inline cell editing triggers
+        function addInlineEditingListeners() {
+            document.querySelectorAll('.editable').forEach(cell => {
+                cell.addEventListener('dblclick', function() {
+                    if (this.querySelector('input')) return;
+                    
+                    const oldValue = this.innerText;
+                    const field = this.getAttribute('data-field');
+                    const input = document.createElement('input');
+                    input.value = oldValue;
+                    input.className = 'edit-input';
+                    
+                    this.innerHTML = '';
+                    this.appendChild(input);
+                    input.focus();
+                    
+                    const saveChange = async () => {
+                        const newValue = input.value;
+                        this.innerText = newValue;
+                        
+                        if (oldValue !== newValue) {
+                            const txId = this.getAttribute('data-id');
+                            await submitCellUpdate(txId, field, newValue);
+                        }
+                    };
+                    
+                    input.addEventListener('blur', saveChange);
+                    input.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') saveChange();
+                    });
+                });
+            });
+        }
+
+        function triggerEditRow(id) {
+            const cell = document.querySelector(`.editable[data-id="${id}"]`);
+            if (cell) cell.dispatchEvent(new Event('dblclick'));
+        }
+
+        async function submitCellUpdate(txId, field, value) {
+            try {
+                const response = await fetch(`/api/transactions/${txId}/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ [field]: value })
+                });
+                
+                if (!response.ok) throw new Error("Transaction edit re-validation failed");
+                
+                // Re-fetch statement details to update UI values and flags
+                await loadStatementDetails(currentStatementId);
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+                await loadStatementDetails(currentStatementId);
+            }
+        }
+
+        // Export download links
+        buttons.exportFormatted.addEventListener('click', () => {
+            if (!currentStatementId) return;
+            window.location.href = `/api/statements/${currentStatementId}/export?flat_table=false`;
+        });
+        buttons.exportFlat.addEventListener('click', () => {
+            if (!currentStatementId) return;
+            window.location.href = `/api/statements/${currentStatementId}/export?flat_table=true`;
+        });
+
+        function applyIssuesFilter() {
+            const showOnlyIssues = document.getElementById('chk-filter-issues').checked;
+            const rows = document.querySelectorAll('#ledger-body tr');
+            rows.forEach(row => {
+                if (row.classList.contains('no-data')) return;
+                const isClean = row.classList.contains('status-clean');
+                if (showOnlyIssues && isClean) {
+                    row.style.display = 'none';
+                } else {
+                    row.style.display = '';
+                }
+            });
+        }
+
+        document.getElementById('chk-filter-issues').addEventListener('change', applyIssuesFilter);
+
+        // Initialize processed records history on load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadHistory();
+        });
+    </script>
+</body>
+</html>

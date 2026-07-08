@@ -1,0 +1,26 @@
+{
+  "aragen_pvt_ltd": {
+    "official_name": "Aragen Life Sciences Pvt Ltd",
+    "aliases": ["aragen", "aragen life sciences", "aragen pvt ltd"],
+    "columns": {
+      "transaction_date": "Date",
+      "description": "Particulars",
+      "debit_amount": "Debit",
+      "credit_amount": "Credit",
+      "running_balance": "Balance"
+    },
+    "numeric_locale": "period_decimal"
+  },
+  "sigma_aldrich": {
+    "official_name": "Sigma-Aldrich Chemicals",
+    "aliases": ["sigma-aldrich", "sigma aldrich", "sigma"],
+    "columns": {
+      "transaction_date": "TxnDate",
+      "description": "Narrative",
+      "debit_amount": "Dr",
+      "credit_amount": "Cr",
+      "running_balance": "CumBal"
+    },
+    "numeric_locale": "period_decimal"
+  }
+}
