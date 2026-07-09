@@ -394,7 +394,7 @@ def process_statement(
                             if best_idx is not None and best_field_score > 0.0:
                                 mapping[field] = best_idx
                                 total_score += best_field_score
-                        if "transaction_date" in mapping:
+                        if "transaction_date" in mapping and len(config["columns"]) >= 4:
                             actual_match_count = len(mapping)
                             min_required = max(3, len(config["columns"]) - 1) if len(config["columns"]) >= 3 else len(config["columns"])
                             if actual_match_count >= min_required:
@@ -408,13 +408,13 @@ def process_statement(
                                         if idx not in mapping.values():
                                             mapping["description"] = idx
                                             break
-                                normalized_score = total_score / len(config["columns"])
-                                if normalized_score > best_score:
-                                    best_score = normalized_score
+                                Desert_score = total_score / len(config["columns"])
+                                if Desert_score > best_score:
+                                    best_score = Desert_score
                                     matched_vendor_key = key
                                     matched_mapping = mapping
-                                
-                    if matched_vendor_key and best_score >= 0.80:
+                                 
+                    if matched_vendor_key and best_score >= 0.95:
                         vendor_key = matched_vendor_key
                         vendor_config = registry.vendors[vendor_key]
                         header_mapping = matched_mapping
@@ -429,11 +429,7 @@ def process_statement(
                             
                 # Fallback: check standard semantic mapping (for unregistered vendors)
                 if not header_found:
-                    mapping = {}
-                    for c_idx, cell in enumerate(row_clean):
-                        field = infer_header_field(cell)
-                        if field and field not in mapping:
-                            mapping[field] = c_idx
+                    mapping = mapper.map_columns(row_clean)
 
                     has_date = "transaction_date" in mapping
                     has_desc = "description" in mapping
@@ -537,6 +533,8 @@ def process_statement(
             if date_idx is None or date_idx >= len(row):
                 continue
             date_val = row[date_idx].strip()
+            if date_val:
+                date_val = re.sub(r'\s+\d{1,2}:\d{2}(:\d{2})?.*$', '', date_val).strip()
 
             # If the mapped date column is not actually date-like, scan the row for the first date-like cell.
             if not date_val or not re.match(r'^\d{1,2}[/\.-]\d{1,2}[/\.-]\d{2,4}$', date_val) and not re.match(r'^\d{4}[/\.-]\d{1,2}[/\.-]\d{1,2}$', date_val):
@@ -544,9 +542,13 @@ def process_statement(
                 date_idx = None
                 for idx, cell in enumerate(row):
                     cell_val = cell.strip()
-                    if re.match(r'^\d{1,2}[/\.-]\d{1,2}[/\.-]\d{2,4}$', cell_val) or re.match(r'^\d{4}[/\.-]\d{1,2}[/\.-]\d{1,2}$', cell_val):
+                    if cell_val:
+                        cell_val_clean = re.sub(r'\s+\d{1,2}:\d{2}(:\d{2})?.*$', '', cell_val).strip()
+                    else:
+                        cell_val_clean = ""
+                    if re.match(r'^\d{1,2}[/\.-]\d{1,2}[/\.-]\d{2,4}$', cell_val_clean) or re.match(r'^\d{4}[/\.-]\d{1,2}[/\.-]\d{1,2}$', cell_val_clean):
                         date_idx = idx
-                        date_val = cell_val
+                        date_val = cell_val_clean
                         break
             
             # Verify it is a valid date (DD/MM/YY, DD/MM/YYYY, DD.MM.YY, DD-MM-YYYY, YYYY-MM-DD)
@@ -566,47 +568,10 @@ def process_statement(
                 continue
                 
             # Populate fields
-            desc_idx = header_mapping.get("description")
-            if desc_idx is None or desc_idx >= len(row):
-                desc_idx = None
-                for idx, cell in enumerate(row):
-                    if idx in header_mapping.values():
-                        continue
-                    val = cell.strip()
-                    if not val:
-                        continue
-                    if re.match(r'^\d{1,2}[/\.-]\d{1,2}[/\.-]\d{2,4}$', val) or re.match(r'^\d{4}[/\.-]\d{1,2}[/\.-]\d{1,2}$', val):
-                        continue
-                    if parse_currency(val, locale) != 0.0 and re.fullmatch(r'[-+]?\d[\d,\.\s]*', val):
-                        continue
-                    if len(val) >= 2:
-                        desc_idx = idx
-                        break
-            desc_val = row[desc_idx].strip() if desc_idx is not None and desc_idx < len(row) else ""
-
-            debit_val = "0.0"
-            credit_val = "0.0"
-            for field in ["debit_amount", "credit_amount"]:
-                idx = header_mapping.get(field)
-                if idx is not None and idx < len(row):
-                    raw_val = row[idx].strip()
-                    if not raw_val:
-                        continue
-                    parsed_val = parse_currency(raw_val, locale)
-                    if parsed_val == 0.0:
-                        if field == "debit_amount":
-                            debit_val = raw_val
-                        else:
-                            credit_val = raw_val
-                        continue
-
-                    if field == "debit_amount":
-                        debit_val = str(abs(parsed_val))
-                    else:
-                        credit_val = str(abs(parsed_val))
-
-            bal_idx = header_mapping.get("running_balance")
-            bal_val = row[bal_idx].strip() if bal_idx is not None and bal_idx < len(row) else "0.0"
+            desc_val = row[header_mapping["description"]].strip() if ("description" in header_mapping and header_mapping["description"] < len(row)) else ""
+            debit_val = row[header_mapping["debit_amount"]].strip() if ("debit_amount" in header_mapping and header_mapping["debit_amount"] < len(row)) else "0.0"
+            credit_val = row[header_mapping["credit_amount"]].strip() if ("credit_amount" in header_mapping and header_mapping["credit_amount"] < len(row)) else "0.0"
+            bal_val = row[header_mapping["running_balance"]].strip() if ("running_balance" in header_mapping and header_mapping["running_balance"] < len(row)) else "0.0"
             
             # Extract additional fields (all columns not mapped to canonical fields)
             mapped_indices = {v for k, v in header_mapping.items() if v is not None}

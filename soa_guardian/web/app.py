@@ -242,6 +242,8 @@ async def get_statement_details(id: int, db: Session = Depends(get_db)):
             "exchange_rate": stmt.exchange_rate,
             "extraction_method": stmt.extraction_method,
             "source_page": stmt.source_page,
+            "original_headers": stmt.original_headers,
+            "header_mapping": stmt.header_mapping,
             "output_format_headers": json.loads(stmt.output_format_headers_json or "{}")
         },
         "transactions": [
@@ -290,19 +292,96 @@ async def update_transaction(
     if not stmt:
         raise HTTPException(status_code=404, detail="Parent statement not found")
         
-    # Update current row fields
-    if "transaction_date" in data:
-        tx.transaction_date = data["transaction_date"]
-    if "description" in data:
-        tx.description = data["description"]
-    if "debit_amount" in data:
-        val = data["debit_amount"]
+    # Map incoming custom/templated keys to standard fields using output_format_columns and fuzzy matching
+    resolved_data = {}
+    output_format_columns = stmt.output_format_columns
+    original_headers = stmt.original_headers
+    header_mapping = stmt.header_mapping
+    
+    from soa_guardian.pipeline import fuzzy_match_headers
+    
+    for key, val in data.items():
+        # First, check if key is a direct canonical field
+        if key in ["transaction_date", "description", "debit_amount", "credit_amount", "running_balance"]:
+            resolved_data[key] = val
+            continue
+            
+        # Otherwise, resolve it using output_format_columns mapping
+        orig_col_name = output_format_columns.get(key, "") if output_format_columns else ""
+        if not orig_col_name:
+            orig_col_name = key
+            
+        orig_clean = orig_col_name.lower().strip()
+        
+        # 1. Combined column
+        if "/" in orig_col_name:
+            parts = [p.strip().lower() for p in orig_col_name.split("/")]
+            debit_keywords = {"debit", "dr", "withdrawal"}
+            credit_keywords = {"credit", "cr", "deposit"}
+            has_debit = any(p in debit_keywords or any(k in p for k in debit_keywords) for p in parts)
+            has_credit = any(p in credit_keywords or any(k in p for k in credit_keywords) for p in parts)
+            if has_debit and has_credit:
+                if tx.debit_amount is not None:
+                    resolved_data["debit_amount"] = val
+                elif tx.credit_amount is not None:
+                    resolved_data["credit_amount"] = val
+                else:
+                    resolved_data["debit_amount"] = val
+                continue
+                
+        # 2. Check canonical field mapping
+        matched_field = None
+        if header_mapping and original_headers:
+            for field, idx in header_mapping.items():
+                if idx is not None and idx < len(original_headers):
+                    if fuzzy_match_headers(original_headers[idx], orig_col_name):
+                        matched_field = field
+                        break
+                        
+        if matched_field:
+            resolved_data[matched_field] = val
+            continue
+            
+        # 3. Check if it's in additional fields
+        if original_headers:
+            found_idx = None
+            for idx, h in enumerate(original_headers):
+                if fuzzy_match_headers(h, orig_col_name):
+                    found_idx = idx
+                    break
+            if found_idx is not None:
+                # Update additional fields
+                additional = dict(tx.additional_fields)
+                additional[str(found_idx)] = str(val)
+                tx.additional_fields = additional
+                continue
+                
+        # 4. Fallback heuristics
+        col_clean = key.lower().strip()
+        if "date" in col_clean:
+            resolved_data["transaction_date"] = val
+        elif "invoice" in col_clean or "desc" in col_clean or "particular" in col_clean or "detail" in col_clean:
+            resolved_data["description"] = val
+        elif "debit" in col_clean or "withdrawal" in col_clean:
+            resolved_data["debit_amount"] = val
+        elif "credit" in col_clean or "deposit" in col_clean:
+            resolved_data["credit_amount"] = val
+        elif "balance" in col_clean:
+            resolved_data["running_balance"] = val
+            
+    # Apply standard fields updates
+    if "transaction_date" in resolved_data:
+        tx.transaction_date = resolved_data["transaction_date"]
+    if "description" in resolved_data:
+        tx.description = resolved_data["description"]
+    if "debit_amount" in resolved_data:
+        val = resolved_data["debit_amount"]
         tx.debit_amount = float(val) if (val is not None and str(val).strip() != "") else None
-    if "credit_amount" in data:
-        val = data["credit_amount"]
+    if "credit_amount" in resolved_data:
+        val = resolved_data["credit_amount"]
         tx.credit_amount = float(val) if (val is not None and str(val).strip() != "") else None
-    if "running_balance" in data:
-        val = data["running_balance"]
+    if "running_balance" in resolved_data:
+        val = resolved_data["running_balance"]
         tx.running_balance = float(val) if (val is not None and str(val).strip() != "") else 0.0
         
     db.commit()

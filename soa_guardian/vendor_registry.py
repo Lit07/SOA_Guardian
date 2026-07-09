@@ -46,9 +46,11 @@ class VendorRegistry:
                 package_root,
                 os.path.join(package_root, "tests"),
                 os.path.join(package_root, "scratch"),
+                os.path.join(package_root, "Internship Problem Statement Docs"),
                 os.getcwd(),
                 os.path.join(os.getcwd(), "tests"),
-                os.path.join(os.getcwd(), "scratch")
+                os.path.join(os.getcwd(), "scratch"),
+                os.path.join(os.getcwd(), "Internship Problem Statement Docs")
             ]
             
             # Deduplicate paths
@@ -120,35 +122,41 @@ class VendorRegistry:
                             text = str(value).strip().lower()
                             if not text:
                                 return 0.0
+                            
+                            words = set(re.sub(r'[^a-z0-9\s]', ' ', text).split())
+                            def has_token(token: str) -> bool:
+                                if " " in token:
+                                    return token in text
+                                return token in words
 
                             if field == "transaction_date":
-                                if any(token in text for token in ["transaction date", "txn date", "posting date", "doc date", "value date", "booking date", "payment date", "due date", "date", "posting", "due"]):
+                                if any(has_token(t) for t in ["transaction date", "txn date", "posting date", "doc date", "value date", "booking date", "payment date", "due date", "date", "posting", "due"]):
                                     return 1.0
                                 return 0.0
 
                             if field == "description":
-                                if any(token in text for token in ["document type", "doc type", "description", "particular", "detail", "text", "narrative", "memo", "remarks", "assignment"]):
+                                if any(has_token(t) for t in ["document type", "doc type", "description", "particular", "detail", "text", "narrative", "memo", "remarks", "assignment"]):
                                     return 1.0
-                                if any(token in text for token in ["reference", "reference key", "invoice", "document no", "invoice no"]):
+                                if any(has_token(t) for t in ["reference", "reference key", "invoice", "document no", "invoice no"]):
                                     return 0.35
                                 return 0.0
 
                             if field == "debit_amount":
-                                if any(token in text for token in ["debit", "withdrawal", "dr", "amount dr", "payments", "paid", "out"]):
+                                if any(has_token(t) for t in ["debit", "withdrawal", "dr", "amount dr", "payments", "paid", "out"]):
                                     return 1.0
-                                if any(token in text for token in ["amount", "amt", "sum", "value"]):
+                                if any(has_token(t) for t in ["amount", "amt", "sum", "value"]):
                                     return 0.75
                                 return 0.0
 
                             if field == "credit_amount":
-                                if any(token in text for token in ["credit", "deposit", "cr", "amount cr", "receipts", "received", "refund", "in"]):
+                                if any(has_token(t) for t in ["credit", "deposit", "cr", "amount cr", "receipts", "received", "refund", "in"]):
                                     return 1.0
-                                if any(token in text for token in ["amount", "amt", "sum", "value"]):
+                                if any(has_token(t) for t in ["amount", "amt", "sum", "value"]):
                                     return 0.75
                                 return 0.0
 
                             if field == "running_balance":
-                                if any(token in text for token in ["balance", "cum bal", "cum balance", "running balance", "bal", "closing", "outstanding"]):
+                                if any(has_token(t) for t in ["balance", "cum bal", "cum balance", "running balance", "bal", "closing", "outstanding"]):
                                     return 1.0
                                 return 0.0
 

@@ -315,6 +315,106 @@
         let currentStatementId = null;
         let statementData = null;
 
+        function resolveCellValueJS(tx, colName, outputFormatHeaders, originalHeaders, headerMapping) {
+            // 1. Get original column mapped name
+            let origColName = outputFormatHeaders ? outputFormatHeaders[colName] : "";
+            if (!origColName) {
+                origColName = colName;
+            }
+            
+            // Helper to fuzzy match headers in JS
+            function fuzzyMatchJS(h1, h2) {
+                if (!h1 || !h2) return false;
+                const norm = (h) => h.toLowerCase().replace(/\bno\b|\bno\.\b|\bnum\b/g, 'number').replace(/[^a-z0-9]/g, '');
+                const c1 = norm(h1);
+                const c2 = norm(h2);
+                if (!c1 || !c2) return false;
+                if (c1 === c2) return true;
+                if (c1.length >= 3 && c2.includes(c1)) return true;
+                if (c2.length >= 3 && c1.includes(c2)) return true;
+                
+                const shortMap = {
+                    "doc": "document", "ref": "reference", "txn": "transaction", 
+                    "trans": "transaction", "tran": "transaction", "amt": "amount", 
+                    "bal": "balance", "desc": "description", "particular": "description",
+                    "duedate": "date", "postingdate": "date", "docdate": "date"
+                };
+                for (const [k, v] of Object.entries(shortMap)) {
+                    if ((c1.includes(k) && c2.includes(v)) || (c2.includes(k) && c1.includes(v))) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            
+            const origClean = origColName.toLowerCase().trim();
+            
+            // Combined column detection
+            if (origColName.includes("/")) {
+                const parts = origColName.split("/").map(p => p.trim().toLowerCase());
+                const debitKeywords = ["debit", "dr", "withdrawal"];
+                const creditKeywords = ["credit", "cr", "deposit"];
+                const hasDebit = parts.some(p => debitKeywords.some(k => p.includes(k)));
+                const hasCredit = parts.some(p => creditKeywords.some(k => p.includes(k)));
+                if (hasDebit && hasCredit) {
+                    const val = tx.debit_amount !== null && tx.debit_amount !== undefined ? tx.debit_amount : tx.credit_amount;
+                    return { value: val, isNumeric: true };
+                }
+            }
+            
+            // 2. Canonical field matching
+            let matchedField = null;
+            if (headerMapping && originalHeaders) {
+                for (const [field, idx] of Object.entries(headerMapping)) {
+                    if (idx !== null && idx !== undefined && idx < originalHeaders.length) {
+                        if (fuzzyMatchJS(originalHeaders[idx], origColName)) {
+                            matchedField = field;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (matchedField) {
+                if (matchedField === "transaction_date") return { value: tx.transaction_date, isNumeric: false };
+                if (matchedField === "description") return { value: tx.description, isNumeric: false };
+                if (matchedField === "debit_amount") return { value: tx.debit_amount, isNumeric: true };
+                if (matchedField === "credit_amount") return { value: tx.credit_amount, isNumeric: true };
+                if (matchedField === "running_balance") return { value: tx.running_balance, isNumeric: true };
+            }
+            
+            // 3. Additional fields mapping
+            if (originalHeaders && tx.additional_fields) {
+                for (let idx = 0; idx < originalHeaders.length; idx++) {
+                    if (fuzzyMatchJS(originalHeaders[idx], origColName)) {
+                        return { value: tx.additional_fields[String(idx)] || "", isNumeric: false };
+                    }
+                }
+            }
+            
+            // 4. Fallback heuristics
+            const colClean = colName.toLowerCase().trim();
+            if (colClean.includes("universal")) {
+                if (["debit", "withdrawal", "dr"].some(k => colClean.includes(k))) return { value: tx.universal_debit, isNumeric: true };
+                if (["credit", "deposit", "cr"].some(k => colClean.includes(k))) return { value: tx.universal_credit, isNumeric: true };
+                if (colClean.includes("balance") || colClean.includes("bal")) return { value: tx.universal_balance, isNumeric: true };
+                return { value: tx.universal_debit !== null ? tx.universal_debit : tx.universal_credit, isNumeric: true };
+            }
+            if (colClean.includes("date")) return { value: tx.transaction_date, isNumeric: false };
+            if (["invoice", "desc", "particular", "detail"].some(k => colClean.includes(k))) return { value: tx.description, isNumeric: false };
+            if (colClean.includes("debit") || colClean.includes("withdrawal")) return { value: tx.debit_amount, isNumeric: true };
+            if (colClean.includes("credit") || colClean.includes("deposit")) return { value: tx.credit_amount, isNumeric: true };
+            if (colClean.includes("balance") || colClean.includes("bal")) return { value: tx.running_balance, isNumeric: true };
+            if (["amount", "sum", "val"].some(k => colClean.includes(k))) {
+                const val = tx.debit_amount !== null ? tx.debit_amount : tx.credit_amount;
+                return { value: val, isNumeric: true };
+            }
+            if (colClean.includes("status")) return { value: tx.status, isNumeric: false };
+            if (colClean.includes("confidence")) return { value: tx.confidence, isNumeric: true };
+            
+            return { value: "", isNumeric: false };
+        }
+
         // DOM elements
         const buttons = {
             closeDrawer: document.getElementById('btn-close-drawer'),
@@ -632,9 +732,16 @@
                     
                     let rowHtml = `<tr class="${statusClass}" ${repairTooltip}>`;
                     headerKeys.forEach(h => {
-                        const field = outputFormatHeaders[h];
-                        const isNumeric = ["debit_amount", "credit_amount", "running_balance", "universal_debit", "universal_credit", "universal_balance"].includes(field);
-                        let val = tx[field];
+                        const resolved = resolveCellValueJS(
+                            tx, 
+                            h, 
+                            stmt.output_format_headers, 
+                            stmt.original_headers, 
+                            stmt.header_mapping
+                        );
+                        
+                        let val = resolved.value;
+                        let isNumeric = resolved.isNumeric;
                         
                         // Format display
                         let displayVal = "";
@@ -646,9 +753,8 @@
                             }
                         }
                         
-                        // Inline-editable cells for standard transactional fields
-                        const editableClass = ["transaction_date", "description", "debit_amount", "credit_amount", "running_balance"].includes(field) ? "editable" : "";
-                        rowHtml += `<td class="${editableClass} ${isNumeric ? 'text-right' : ''}" data-id="${tx.id}" data-field="${field}">${displayVal}</td>`;
+                        // All cells are editable, data-field is set to the header name h
+                        rowHtml += `<td class="editable ${isNumeric ? 'text-right' : ''}" data-id="${tx.id}" data-field="${h}">${displayVal}</td>`;
                     });
                     
                     rowHtml += `
