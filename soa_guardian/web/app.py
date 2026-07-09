@@ -107,7 +107,9 @@ async def upload_statement(
             file_path=file_path,
             template_file_path=template_file_path,
             mapping_file_path=mapping_file_path,
-            output_format_headers_json=json.dumps(output_format_cols)
+            output_format_headers_json=json.dumps(output_format_cols),
+            original_headers_json=json.dumps(canonical.original_headers),
+            header_mapping_json=json.dumps(canonical.header_mapping)
         )
         db_stmt.anomaly_flags = canonical.anomaly_flags
         
@@ -460,7 +462,10 @@ async def export_statement(
         source_page=stmt.source_page,
         anomaly_flags=stmt.anomaly_flags,
         unparsed_lines=unparsed_list,
-        repair_log=repair_log_list
+        repair_log=repair_log_list,
+        original_headers=stmt.original_headers,
+        header_mapping=stmt.header_mapping,
+        output_format_columns=stmt.output_format_columns
     )
     
     # 2. Save temporary exported spreadsheet

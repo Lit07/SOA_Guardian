@@ -256,7 +256,14 @@ body {
     font-weight: 500;
 }
 
-/* Sections */
+/* Sections & Grid */
+.dashboard-grid {
+    flex: 1;
+    overflow-y: auto;
+    padding: 32px 40px;
+    min-height: 0;
+}
+
 .content-section {
     display: none;
     flex-direction: column;

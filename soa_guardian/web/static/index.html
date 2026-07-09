@@ -547,9 +547,19 @@
             }
             
             // Calculate imbalance gap
+            // Use last transaction's running balance as the calculated closing (works for both bank and vendor SOA)
             const totalDebits = txs.reduce((sum, tx) => sum + (tx.debit_amount || 0.0), 0.0);
             const totalCredits = txs.reduce((sum, tx) => sum + (tx.credit_amount || 0.0), 0.0);
-            const calculatedClosing = stmt.opening_balance + totalCredits - totalDebits;
+            let calculatedClosing;
+            if (txs.length > 0 && txs[txs.length - 1].running_balance != null) {
+                calculatedClosing = txs[txs.length - 1].running_balance;
+            } else {
+                // Fallback: try both formulas, pick the one closer to stated closing
+                const bankCalc = stmt.opening_balance + totalCredits - totalDebits;
+                const vendorCalc = stmt.opening_balance + totalDebits - totalCredits;
+                calculatedClosing = Math.abs(bankCalc - stmt.closing_balance) <= Math.abs(vendorCalc - stmt.closing_balance) 
+                    ? bankCalc : vendorCalc;
+            }
             const imbalance = calculatedClosing - stmt.closing_balance;
             
             document.getElementById('stat-imbalance').innerText = `$${imbalance.toFixed(2)}`;

@@ -43,6 +43,8 @@ class DBStatement(Base):
     template_file_path = Column(String, nullable=True)
     mapping_file_path = Column(String, nullable=True)
     output_format_headers_json = Column(Text, default="{}")
+    original_headers_json = Column(Text, default="[]")
+    header_mapping_json = Column(Text, default="{}")
     
     transactions = relationship("DBTransaction", back_populates="statement", cascade="all, delete-orphan")
     audit_logs = relationship("DBAuditLog", back_populates="statement", cascade="all, delete-orphan")
@@ -57,6 +59,39 @@ class DBStatement(Base):
     @anomaly_flags.setter
     def anomaly_flags(self, value):
         self.anomaly_flags_json = json.dumps(value)
+
+    @property
+    def original_headers(self):
+        try:
+            return json.loads(self.original_headers_json)
+        except Exception:
+            return []
+
+    @original_headers.setter
+    def original_headers(self, value):
+        self.original_headers_json = json.dumps(value)
+
+    @property
+    def header_mapping(self):
+        try:
+            return json.loads(self.header_mapping_json)
+        except Exception:
+            return {}
+
+    @header_mapping.setter
+    def header_mapping(self, value):
+        self.header_mapping_json = json.dumps(value)
+
+    @property
+    def output_format_columns(self):
+        try:
+            return json.loads(self.output_format_headers_json)
+        except Exception:
+            return {}
+
+    @output_format_columns.setter
+    def output_format_columns(self, value):
+        self.output_format_headers_json = json.dumps(value)
 
 class DBTransaction(Base):
     __tablename__ = "transactions"

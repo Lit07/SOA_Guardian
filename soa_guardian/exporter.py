@@ -3,6 +3,92 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from soa_guardian.models import CanonicalStatement
 
+def resolve_cell_value(tx, col_name, output_format_columns, original_headers, header_mapping):
+    """Resolves the field value and type for a target column name based on mappings."""
+    from soa_guardian.pipeline import fuzzy_match_headers
+    
+    # 1. Resolve original mapped column name from target column name
+    orig_col_name = output_format_columns.get(col_name, "") if output_format_columns else ""
+    if not orig_col_name:
+        orig_col_name = col_name
+        
+    orig_clean = orig_col_name.lower().strip()
+    
+    # 1b. Detect combined debit/credit columns (e.g. "debit/credit", "dr/cr")
+    if "/" in orig_col_name:
+        parts = [p.strip().lower() for p in orig_col_name.split("/")]
+        debit_keywords = {"debit", "dr", "withdrawal"}
+        credit_keywords = {"credit", "cr", "deposit"}
+        has_debit = any(p in debit_keywords or any(k in p for k in debit_keywords) for p in parts)
+        has_credit = any(p in credit_keywords or any(k in p for k in credit_keywords) for p in parts)
+        if has_debit and has_credit:
+            # Combined column: return whichever is non-null
+            val = tx.debit_amount if tx.debit_amount is not None else tx.credit_amount
+            return val, True
+    
+    # 2. Check if this maps to a canonical field in header_mapping
+    matched_field = None
+    if header_mapping and original_headers:
+        for field, idx in header_mapping.items():
+            if idx is not None and idx < len(original_headers):
+                if fuzzy_match_headers(original_headers[idx], orig_col_name):
+                    matched_field = field
+                    break
+                    
+    if matched_field:
+        if matched_field == "transaction_date":
+            return tx.transaction_date, False
+        elif matched_field == "description":
+            return tx.description, False
+        elif matched_field == "debit_amount":
+            return tx.debit_amount, True
+        elif matched_field == "credit_amount":
+            return tx.credit_amount, True
+        elif matched_field == "running_balance":
+            return tx.running_balance, True
+            
+    # 3. If not mapped to a canonical field, extract from additional fields using original header index
+    if original_headers:
+        for idx, h in enumerate(original_headers):
+            if fuzzy_match_headers(h, orig_col_name):
+                return tx.additional_fields.get(str(idx), ""), False
+                
+    # 4. Fallback to standard semantic naming heuristics on the target col_name
+    col_clean = col_name.lower().strip()
+    
+    # Universal columns must be checked BEFORE debit/credit/dr/cr to avoid false matches
+    if "universal" in col_clean:
+        if any(k in col_clean for k in ["debit", "withdrawal", "dr"]):
+            return getattr(tx, "universal_debit", None), True
+        elif any(k in col_clean for k in ["credit", "deposit", "cr"]):
+            return getattr(tx, "universal_credit", None), True
+        elif "balance" in col_clean or "bal" in col_clean:
+            return getattr(tx, "universal_balance", None), True
+        elif "amount" in col_clean or "sum" in col_clean or "val" in col_clean:
+            val = getattr(tx, "universal_debit", None) or getattr(tx, "universal_credit", None)
+            return val, True
+    elif "date" in col_clean:
+        return tx.transaction_date, False
+    elif "invoice" in col_clean or "desc" in col_clean or "particular" in col_clean or "detail" in col_clean:
+        return tx.description, False
+    elif "debit" in col_clean or "withdrawal" in col_clean:
+        return tx.debit_amount, True
+    elif "credit" in col_clean or "deposit" in col_clean:
+        return tx.credit_amount, True
+    elif "balance" in col_clean or "bal" in col_clean:
+        return tx.running_balance, True
+    elif "amount" in col_clean or "sum" in col_clean or "val" in col_clean:
+        val = tx.debit_amount if tx.debit_amount is not None else tx.credit_amount
+        return val, True
+    elif "status" in col_clean:
+        return getattr(tx, "status", None), False
+    elif "confidence" in col_clean:
+        return getattr(tx, "confidence", None), True
+    elif any(k in col_clean for k in ["note", "remark", "reason"]):
+        return (tx.repair_info.reason if tx.repair_info else None), False
+        
+    return "", False
+
 def export_to_excel(
     canonical: CanonicalStatement, 
     output_path: str,
@@ -24,53 +110,31 @@ def export_to_excel(
             # Read first row headers
             headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
             
-            # Map headers to standard canonical transaction fields
-            from soa_guardian.mapping import SemanticMapper
-            mapper = SemanticMapper(use_embeddings=False) # Dictionary matching is enough
+            normal_font = Font(name="Calibri", size=11)
+            thin_side = Side(border_style="thin", color="D3D3D3")
+            border_all = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
             
-            mapping = {}
-            for c_idx, h in enumerate(headers):
-                if not h:
-                    continue
-                h_clean = str(h).strip().lower()
-                
-                # Match universal fields
-                if "universal" in h_clean:
-                    if any(k in h_clean for k in ["debit", "withdrawal", "dr"]):
-                        mapping["universal_debit"] = c_idx
-                    elif any(k in h_clean for k in ["credit", "deposit", "cr"]):
-                        mapping["universal_credit"] = c_idx
-                    elif any(k in h_clean for k in ["balance", "bal"]):
-                        mapping["universal_balance"] = c_idx
-                elif "status" in h_clean:
-                    mapping["status"] = c_idx
-                elif "confidence" in h_clean:
-                    mapping["confidence"] = c_idx
-                elif any(k in h_clean for k in ["note", "remark", "reason"]):
-                    mapping["repair_info_reason"] = c_idx
-                else:
-                    field, score = mapper.map_header(str(h))
-                    if field and field not in mapping:
-                        mapping[field] = c_idx
-                        
             # Start writing rows from row 2
             start_row = 2
             for tx in canonical.transactions:
-                for field, col_idx in mapping.items():
-                    cell = ws.cell(row=start_row, column=col_idx + 1)
-                    if field == "repair_info_reason":
-                        cell.value = tx.repair_info.reason if tx.repair_info else None
-                    else:
-                        val = getattr(tx, field, None)
-                        if val is None:
-                            cell.value = None
-                        else:
-                            cell.value = val
-                            
-                    # Format number style for numeric fields
-                    if field in ["debit_amount", "credit_amount", "running_balance", "universal_debit", "universal_credit", "universal_balance"]:
-                        if isinstance(cell.value, (int, float)):
-                            cell.number_format = "$#,##0.00"
+                for col_idx, h in enumerate(headers, 1):
+                    if not h:
+                        continue
+                    cell_val, is_numeric = resolve_cell_value(
+                        tx, 
+                        str(h), 
+                        canonical.output_format_columns, 
+                        canonical.original_headers, 
+                        canonical.header_mapping
+                    )
+                    cell = ws.cell(row=start_row, column=col_idx, value=cell_val)
+                    cell.font = normal_font
+                    cell.border = border_all
+                    
+                    if "date" in str(h).lower():
+                        cell.alignment = Alignment(horizontal="center")
+                    elif is_numeric and cell_val is not None and isinstance(cell_val, (int, float)):
+                        cell.number_format = "$#,##0.00"
                 start_row += 1
                 
             wb.save(output_path)
@@ -131,58 +195,20 @@ def export_to_excel(
             if use_intended_output_format:
                 # Write in exactly the columns of the dynamic output format
                 for col_idx, col_name in enumerate(column_headers, 1):
-                    orig_col_name = canonical.output_format_columns.get(col_name, "")
-                    cell_val = ""
-                    is_numeric = False
-                    
-                    if not orig_col_name:
-                        if "universal" in col_name.lower():
-                            if "debit" in col_name.lower() or "dr" in col_name.lower() or "withdrawal" in col_name.lower():
-                                cell_val = tx.universal_debit
-                                is_numeric = True
-                            elif "credit" in col_name.lower() or "cr" in col_name.lower() or "deposit" in col_name.lower():
-                                cell_val = tx.universal_credit
-                                is_numeric = True
-                            elif "balance" in col_name.lower():
-                                cell_val = tx.universal_balance
-                                is_numeric = True
-                            elif "amount" in col_name.lower() or "sum" in col_name.lower() or "val" in col_name.lower():
-                                cell_val = tx.universal_debit if tx.universal_debit is not None else tx.universal_credit
-                                is_numeric = True
-                        else:
-                            cell_val = ""
-                    elif "date" in col_name.lower():
-                        cell_val = tx.transaction_date
-                    elif "invoice" in col_name.lower() or "desc" in col_name.lower() or "particular" in col_name.lower():
-                        cell_val = tx.description
-                    elif "universal" in col_name.lower() and ("amount" in col_name.lower() or "sum" in col_name.lower() or "val" in col_name.lower() or "debit" in col_name.lower() or "credit" in col_name.lower() or "balance" in col_name.lower()):
-                        if "debit" in col_name.lower() or "dr" in col_name.lower() or "withdrawal" in col_name.lower():
-                            cell_val = tx.universal_debit
-                        elif "credit" in col_name.lower() or "cr" in col_name.lower() or "deposit" in col_name.lower():
-                            cell_val = tx.universal_credit
-                        elif "balance" in col_name.lower():
-                            cell_val = tx.universal_balance
-                        else:
-                            cell_val = tx.universal_debit if tx.universal_debit is not None else tx.universal_credit
-                        is_numeric = True
-                    elif "amount" in col_name.lower() or "sum" in col_name.lower() or "val" in col_name.lower():
-                        cell_val = tx.debit_amount if tx.debit_amount is not None else tx.credit_amount
-                        is_numeric = True
-                    else:
-                        # Fetch custom field using the index of orig_col_name in original statement columns
-                        try:
-                            orig_idx = canonical.original_headers.index(orig_col_name)
-                            cell_val = tx.additional_fields.get(str(orig_idx), "")
-                        except ValueError:
-                            cell_val = ""
-                            
+                    cell_val, is_numeric = resolve_cell_value(
+                        tx, 
+                        col_name, 
+                        canonical.output_format_columns, 
+                        canonical.original_headers, 
+                        canonical.header_mapping
+                    )
                     cell = ws.cell(row=r_idx, column=col_idx, value=cell_val)
                     cell.font = normal_font
                     cell.border = border_all
                     
                     if "date" in col_name.lower():
                         cell.alignment = Alignment(horizontal="center")
-                    elif is_numeric and cell_val is not None:
+                    elif is_numeric and cell_val is not None and isinstance(cell_val, (int, float)):
                         cell.number_format = "$#,##0.00"
             elif use_original_indices:
                 # Write cells matching original column sequence indices
