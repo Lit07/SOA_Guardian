@@ -147,8 +147,7 @@ async def upload_statement(
                 field_location=entry.get("field", ""),
                 raw_text=entry.get("raw_value", ""),
                 corrected_value=entry.get("corrected_value", ""),
-                reason=entry.get("reason", ""),
-                confidence=entry.get("confidence", 1.0)
+                reason=entry.get("reason", "")
             )
             db.add(db_log)
             
