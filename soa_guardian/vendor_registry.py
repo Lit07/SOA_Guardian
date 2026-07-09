@@ -122,8 +122,14 @@ class VendorRegistry:
                         if desc_h and mapping["output_format_columns"].get(desc_h):
                             mapping["columns"]["description"] = mapping["output_format_columns"][desc_h]
                         if amt_h and mapping["output_format_columns"].get(amt_h):
-                            mapping["columns"]["debit_amount"] = mapping["output_format_columns"][amt_h]
-                            mapping["columns"]["credit_amount"] = mapping["output_format_columns"][amt_h]
+                            val = mapping["output_format_columns"][amt_h]
+                            if "/" in val:
+                                parts = [p.strip() for p in val.split("/")]
+                                mapping["columns"]["debit_amount"] = parts[0]
+                                mapping["columns"]["credit_amount"] = parts[1]
+                            else:
+                                mapping["columns"]["debit_amount"] = val
+                                mapping["columns"]["credit_amount"] = val
                             
                         excel_vendors[vendor_key] = mapping
                     return excel_vendors
@@ -135,7 +141,8 @@ class VendorRegistry:
         self, 
         text_content: str, 
         extracted_headers: List[str],
-        similarity_threshold: float = 0.80
+        similarity_threshold: float = 0.80,
+        original_filename: Optional[str] = None
     ) -> Optional[Tuple[str, Dict[str, Any]]]:
         """Identifies vendor by scanning text for aliases, falling back to header structure matching.
         
@@ -143,21 +150,24 @@ class VendorRegistry:
             text_content: Full text layer extracted from statement document.
             extracted_headers: List of raw header columns extracted from table.
             similarity_threshold: Overlap ratio threshold for structural matches (default 80%).
+            original_filename: Optional original uploaded filename.
             
         Returns:
             Tuple of (vendor_key, vendor_config) if resolved, else None.
         """
-        # Pass 1: Search for aliases in the raw text content
+        # Pass 1: Search for aliases in the raw text content or original filename
         import re
         def clean_str(s: str) -> str:
             return re.sub(r"[^a-z0-9]", "", s.lower())
             
         text_norm = clean_str(text_content)
+        filename_norm = clean_str(original_filename) if original_filename else ""
         for key, config in self.vendors.items():
             for alias in config.get("aliases", []):
                 alias_norm = clean_str(alias)
-                if alias_norm and alias_norm in text_norm:
-                    return key, config
+                if alias_norm:
+                    if alias_norm in text_norm or (filename_norm and alias_norm in filename_norm):
+                        return key, config
                     
         # Pass 2: Fuzzy header structure overlap
         best_key = None

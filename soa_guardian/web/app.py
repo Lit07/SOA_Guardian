@@ -64,7 +64,8 @@ async def upload_statement(
             universal_currency=universal_currency,
             exchange_rate=exchange_rate,
             flat_table=flat_table,
-            custom_mapping_path=mapping_file_path
+            custom_mapping_path=mapping_file_path,
+            original_filename=file.filename
         )
         
         # Resolve dynamic header mappings

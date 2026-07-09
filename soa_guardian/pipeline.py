@@ -73,7 +73,7 @@ def extract_metadata_and_balances(
 
     # 2. Extract opening/closing balances from grid structure
     op_patterns = ["opening balance", "balance brought forward", "prev balance", "start balance", "balance b/f"]
-    cl_patterns = ["closing balance", "balance carried forward", "ending balance", "new balance", "balance c/f"]
+    cl_patterns = ["closing balance", "balance carried forward", "ending balance", "new balance", "balance c/f", "total due", "outstanding", "total outstanding", "ageing analysis total"]
     
     found_op = False
     found_cl = False
@@ -110,7 +110,7 @@ def extract_metadata_and_balances(
             found_op = True
             
     if not found_cl:
-        cl_match = re.search(r'(?:Closing\s+Balance|Ending\s+Balance|C/F)\s*[:\-\s]?\s*([0-9\.,\-]+)', text_content, re.IGNORECASE)
+        cl_match = re.search(r'(?:Closing\s+Balance|Ending\s+Balance|C/F|Total\s+Due|Total\s+Outstanding|Outstanding\s+Balance|AGEING\s+ANALYSIS\s+TOTAL)\s*[:\-\s]?\s*([0-9\.,\-]+)', text_content, re.IGNORECASE)
         if cl_match:
             closing_balance = parse_currency(cl_match.group(1), locale)
             found_cl = True
@@ -164,7 +164,8 @@ def process_statement(
     flat_table: bool = False,
     universal_currency: str = "USD",
     exchange_rate: float = 1.0,
-    custom_mapping_path: Optional[str] = None
+    custom_mapping_path: Optional[str] = None,
+    original_filename: Optional[str] = None
 ) -> CanonicalStatement:
     """Ties together all pipeline modules into the final processing call."""
     # 1. Profile document heuristics
@@ -221,8 +222,8 @@ def process_statement(
     mapper = SemanticMapper(use_embeddings=True)
     registry = VendorRegistry(mappings_path=custom_mapping_path)
     
-    # 5. Pre-check vendor by text aliases in text layer
-    vendor_match = registry.identify_vendor(text_content, [])
+    # 5. Pre-check vendor by text aliases in text layer or original filename
+    vendor_match = registry.identify_vendor(text_content, [], original_filename=original_filename)
     vendor_config = None
     vendor_name = None
     if vendor_match:
@@ -292,6 +293,11 @@ def process_statement(
                                 mapping[field] = c_idx
                                 break
                     if "transaction_date" in mapping and ("description" in mapping or any(f in mapping for f in ["debit_amount", "credit_amount", "running_balance"])):
+                        if "running_balance" not in mapping:
+                            for c_idx, cell in enumerate(row_clean):
+                                if fuzzy_match_headers(cell, "balance"):
+                                    mapping["running_balance"] = c_idx
+                                    break
                         if "description" not in mapping:
                             for idx in range(len(row_clean)):
                                 if idx not in mapping.values():
@@ -316,6 +322,11 @@ def process_statement(
                             actual_match_count = len(mapping)
                             min_required = max(3, len(config["columns"]) - 1) if len(config["columns"]) >= 3 else len(config["columns"])
                             if actual_match_count >= min_required:
+                                if "running_balance" not in mapping:
+                                    for c_idx, cell in enumerate(row_clean):
+                                        if fuzzy_match_headers(cell, "balance"):
+                                            mapping["running_balance"] = c_idx
+                                            break
                                 if "description" not in mapping:
                                     for idx in range(len(row_clean)):
                                         if idx not in mapping.values():
@@ -333,7 +344,10 @@ def process_statement(
                         header_mapping = matched_mapping
                         header_found = True
                         start_row_idx = r_idx + 1
+                        vendor_name = vendor_config.get("official_name", vendor_name)
                         bank_name = vendor_config.get("official_name", bank_name)
+                        if "currency" in vendor_config:
+                            original_currency = vendor_config["currency"]
                         if "numeric_locale" in vendor_config:
                             locale = vendor_config["numeric_locale"]
                             
@@ -443,12 +457,18 @@ def process_statement(
                 continue
             date_val = row[date_idx].strip()
             
-            if not date_val:
+            # Verify it is a valid date (DD/MM/YY, DD/MM/YYYY, DD.MM.YY, DD-MM-YYYY, YYYY-MM-DD)
+            is_valid_date = False
+            if date_val:
+                if re.match(r'^\d{1,2}[/\.-]\d{1,2}[/\.-]\d{2,4}$', date_val) or re.match(r'^\d{4}[/\.-]\d{1,2}[/\.-]\d{1,2}$', date_val):
+                    is_valid_date = True
+                    
+            if not is_valid_date:
                 row_str = " ".join(row).strip()
                 unparsed_lines.append(UnparsedLine(
                     raw_text=row_str,
                     source_page=actual_page_num,
-                    reason="Transaction row missing date field",
+                    reason="Row date field invalid or missing (likely footer/summary info)",
                     review_required=True
                 ))
                 continue
