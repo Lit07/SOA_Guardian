@@ -469,7 +469,7 @@ def process_statement(
                     raw_text=row_str,
                     source_page=actual_page_num,
                     reason="Row date field invalid or missing (likely footer/summary info)",
-                    review_required=True
+                    review_required=False
                 ))
                 continue
                 
@@ -545,6 +545,13 @@ def process_statement(
             universal_balance=u_bal
         ))
         
+    # If we successfully parsed transactions, then pages that had no headers (like cover/summary pages)
+    # do not need review for not having transaction table headers.
+    if len(transactions_objs) > 0:
+        for line in unparsed_lines:
+            if "No table header identified yet" in line.reason:
+                line.review_required = False
+                
     source_pages_str = ",".join(str(i+1) for i in page_indices) if page_indices else "1"
     
     # Metadata assembly
