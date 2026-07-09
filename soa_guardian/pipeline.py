@@ -123,6 +123,39 @@ def extract_metadata_and_balances(
         
     return opening_balance, closing_balance, bank_name, account_number, start_date, end_date, uen, customer_id, salesman_id, term_code, found_op, found_cl
 
+def fuzzy_match_headers(h1: str, h2: str) -> bool:
+    def normalize_header(h: str) -> str:
+        s = h.lower().strip()
+        s = re.sub(r'\bno\b|\bno\.\b|\bnum\b', 'number', s)
+        return re.sub(r'[^a-z0-9]', '', s)
+        
+    c1 = normalize_header(h1)
+    c2 = normalize_header(h2)
+    if not c1 or not c2:
+        return False
+    if c1 == c2:
+        return True
+    if len(c1) >= 3 and c1 in c2:
+        return True
+    if len(c2) >= 3 and c2 in c1:
+        return True
+        
+    short_map = {
+        "doc": "document",
+        "ref": "reference",
+        "txn": "transaction",
+        "trans": "transaction",
+        "tran": "transaction",
+        "amt": "amount",
+        "bal": "balance",
+        "desc": "description",
+        "particular": "description"
+    }
+    for k, v in short_map.items():
+        if (k in c1 and v in c2) or (k in c2 and v in c1):
+            return True
+    return False
+
 from typing import Optional
 
 def process_statement(
@@ -255,10 +288,15 @@ def process_statement(
                     mapping = {}
                     for field, v_header in vendor_cols.items():
                         for c_idx, cell in enumerate(row_clean):
-                            if cell.lower() == v_header.lower() or v_header.lower() in cell.lower():
+                            if fuzzy_match_headers(cell, v_header):
                                 mapping[field] = c_idx
                                 break
-                    if "transaction_date" in mapping and "description" in mapping:
+                    if "transaction_date" in mapping and ("description" in mapping or any(f in mapping for f in ["debit_amount", "credit_amount", "running_balance"])):
+                        if "description" not in mapping:
+                            for idx in range(len(row_clean)):
+                                if idx not in mapping.values():
+                                    mapping["description"] = idx
+                                    break
                         header_mapping = mapping
                         header_found = True
                         start_row_idx = r_idx + 1
@@ -266,18 +304,29 @@ def process_statement(
                     # Fallback: scan all registered vendors to see if this row matches their header names
                     matched_vendor_key = None
                     matched_mapping = {}
+                    best_match_count = 0
                     for key, config in registry.vendors.items():
                         mapping = {}
                         for field, v_header in config["columns"].items():
                             for c_idx, cell in enumerate(row_clean):
-                                if cell.lower() == v_header.lower() or v_header.lower() in cell.lower():
+                                if fuzzy_match_headers(cell, v_header):
                                     mapping[field] = c_idx
                                     break
-                        if "transaction_date" in mapping and "description" in mapping:
-                            matched_vendor_key = key
-                            matched_mapping = mapping
-                            break
-                            
+                        if "transaction_date" in mapping:
+                            actual_match_count = len(mapping)
+                            min_required = max(3, len(config["columns"]) - 1) if len(config["columns"]) >= 3 else len(config["columns"])
+                            if actual_match_count >= min_required:
+                                if "description" not in mapping:
+                                    for idx in range(len(row_clean)):
+                                        if idx not in mapping.values():
+                                            mapping["description"] = idx
+                                            break
+                                match_count = len(mapping)
+                                if match_count > best_match_count:
+                                    best_match_count = match_count
+                                    matched_vendor_key = key
+                                    matched_mapping = mapping
+                                
                     if matched_vendor_key:
                         vendor_key = matched_vendor_key
                         vendor_config = registry.vendors[vendor_key]
@@ -293,7 +342,13 @@ def process_statement(
                     mapping = mapper.map_columns(row)
                     has_date = "transaction_date" in mapping
                     has_desc = "description" in mapping
-                    if has_date and has_desc:
+                    has_financial = any(f in mapping for f in ["debit_amount", "credit_amount", "running_balance"])
+                    if has_date and (has_desc or has_financial):
+                        if not has_desc:
+                            for idx in range(len(row)):
+                                if idx not in mapping.values():
+                                    mapping["description"] = idx
+                                    break
                         header_mapping = mapping
                         header_found = True
                         start_row_idx = r_idx + 1
@@ -302,7 +357,15 @@ def process_statement(
                         next_row = page_grid[r_idx + 1]
                         merged_temp, _ = merge_split_headers([row, next_row], num_header_rows=2)
                         mapping_merged = mapper.map_columns(merged_temp)
-                        if "transaction_date" in mapping_merged and "description" in mapping_merged:
+                        has_date_m = "transaction_date" in mapping_merged
+                        has_desc_m = "description" in mapping_merged
+                        has_fin_m = any(f in mapping_merged for f in ["debit_amount", "credit_amount", "running_balance"])
+                        if has_date_m and (has_desc_m or has_fin_m):
+                            if not has_desc_m:
+                                for idx in range(len(merged_temp)):
+                                    if idx not in mapping_merged.values():
+                                        mapping_merged["description"] = idx
+                                        break
                             header_mapping = mapping_merged
                             header_found = True
                             start_row_idx = r_idx + 2
@@ -391,10 +454,10 @@ def process_statement(
                 continue
                 
             # Populate fields
-            desc_val = row[header_mapping["description"]].strip() if header_mapping.get("description", -1) < len(row) else ""
-            debit_val = row[header_mapping["debit_amount"]].strip() if header_mapping.get("debit_amount", -1) < len(row) else "0.0"
-            credit_val = row[header_mapping["credit_amount"]].strip() if header_mapping.get("credit_amount", -1) < len(row) else "0.0"
-            bal_val = row[header_mapping["running_balance"]].strip() if header_mapping.get("running_balance", -1) < len(row) else "0.0"
+            desc_val = row[header_mapping["description"]].strip() if ("description" in header_mapping and header_mapping["description"] < len(row)) else ""
+            debit_val = row[header_mapping["debit_amount"]].strip() if ("debit_amount" in header_mapping and header_mapping["debit_amount"] < len(row)) else "0.0"
+            credit_val = row[header_mapping["credit_amount"]].strip() if ("credit_amount" in header_mapping and header_mapping["credit_amount"] < len(row)) else "0.0"
+            bal_val = row[header_mapping["running_balance"]].strip() if ("running_balance" in header_mapping and header_mapping["running_balance"] < len(row)) else "0.0"
             
             # Extract additional fields (all columns not mapped to canonical fields)
             mapped_indices = {v for k, v in header_mapping.items() if v is not None}

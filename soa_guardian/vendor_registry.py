@@ -148,10 +148,15 @@ class VendorRegistry:
             Tuple of (vendor_key, vendor_config) if resolved, else None.
         """
         # Pass 1: Search for aliases in the raw text content
-        text_lower = text_content.lower()
+        import re
+        def clean_str(s: str) -> str:
+            return re.sub(r"[^a-z0-9]", "", s.lower())
+            
+        text_norm = clean_str(text_content)
         for key, config in self.vendors.items():
             for alias in config.get("aliases", []):
-                if alias.lower() in text_lower:
+                alias_norm = clean_str(alias)
+                if alias_norm and alias_norm in text_norm:
                     return key, config
                     
         # Pass 2: Fuzzy header structure overlap
