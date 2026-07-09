@@ -29,34 +29,46 @@
         }
 
         .file-drop-area {
-            border: 2px dashed rgba(255, 255, 255, 0.15);
+            border: 1px dashed rgba(14, 165, 233, 0.25);
             border-radius: 12px;
-            background: rgba(255, 255, 255, 0.02);
+            background: rgba(14, 165, 233, 0.01);
             padding: 20px;
             text-align: center;
             cursor: pointer;
-            transition: all 0.25s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             min-height: 110px;
+            box-shadow: inset 0 0 12px rgba(14, 165, 233, 0.02);
         }
 
         .file-drop-area:hover {
-            border-color: rgba(255, 255, 255, 0.4);
-            background: rgba(255, 255, 255, 0.05);
-            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15);
+            border-color: rgba(14, 165, 233, 0.6);
+            background: rgba(14, 165, 233, 0.04);
+            box-shadow: 
+                0 8px 24px rgba(0, 0, 0, 0.15),
+                inset 0 0 16px rgba(14, 165, 233, 0.05);
+            transform: translateY(-2px);
         }
 
         .file-drop-area.dragover {
-            border-color: #00ffff;
-            background: rgba(0, 255, 255, 0.05);
+            border-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.08);
+            box-shadow: 
+                0 0 20px rgba(56, 189, 248, 0.2),
+                inset 0 0 16px rgba(56, 189, 248, 0.1);
         }
 
         .area-icon {
             font-size: 24px;
             margin-bottom: 6px;
+            transition: transform 0.2s ease;
+        }
+
+        .file-drop-area:hover .area-icon {
+            transform: scale(1.1);
         }
 
         .file-drop-area p {
@@ -380,10 +392,47 @@
             }
         });
 
+        // Drag & drop handlers for Mappings registry drop area
+        mappingArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            mappingArea.classList.add('dragover');
+        });
+        mappingArea.addEventListener('dragleave', () => {
+            mappingArea.classList.remove('dragover');
+        });
+        mappingArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            mappingArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                mappingInput.files = e.dataTransfer.files;
+                mappingInput.dispatchEvent(new Event('change'));
+            }
+        });
+
+        // Drag & drop handlers for Target Template drop area
+        templateArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            templateArea.classList.add('dragover');
+        });
+        templateArea.addEventListener('dragleave', () => {
+            templateArea.classList.remove('dragover');
+        });
+        templateArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            templateArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                templateInput.files = e.dataTransfer.files;
+                templateInput.dispatchEvent(new Event('change'));
+            }
+        });
+
         // Form submit handler
         uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            if (fileInput.files.length === 0) return;
+            if (fileInput.files.length === 0) {
+                alert("Please select or drop a Statement of Account Document (SoA) before starting ingestion.");
+                return;
+            }
             
             const submitBtn = document.getElementById('btn-submit-upload');
             submitBtn.disabled = true;
