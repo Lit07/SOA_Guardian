@@ -1,15 +1,56 @@
+import re
 import warnings
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Any
 
 # Initial seed alias lists for canonical fields
 SEED_ALIASES = {
-    "transaction_date": ["date", "txn date", "value date", "post date", "trans date", "transaction date", "booking date"],
-    "description": ["description", "particulars", "details", "narrative", "transaction details", "remarks", "memo"],
-    "debit_amount": ["debit", "withdrawal", "dr", "paid out", "debit amount", "amount dr", "out", "payments"],
-    "credit_amount": ["credit", "deposit", "cr", "received", "credit amount", "amount cr", "in", "receipts"],
-    "running_balance": ["balance", "running balance", "running bal", "bal", "cumulative balance", "account balance"]
+    "transaction_date": ["date", "txn date", "value date", "post date", "trans date", "transaction date", "booking date", "doc date", "due date", "posting date", "payment date"],
+    "description": ["description", "particulars", "details", "narrative", "transaction details", "remarks", "memo", "text", "assignment", "reference", "reference key", "document no", "document number", "invoice no", "invoice number", "type"],
+    "debit_amount": ["debit", "withdrawal", "dr", "paid out", "debit amount", "amount dr", "out", "payments", "amount"],
+    "credit_amount": ["credit", "deposit", "cr", "received", "credit amount", "amount cr", "in", "receipts", "amount"],
+    "running_balance": ["balance", "running balance", "running bal", "bal", "cumulative balance", "account balance", "cum bal", "cum balance"]
 }
+
+HEADER_FIELD_KEYWORDS = {
+    "transaction_date": ["date", "doc", "posting", "due", "txn", "trans", "value", "booking", "payment"],
+    "description": ["description", "particular", "detail", "narrative", "remark", "memo", "text", "assignment", "reference", "invoice", "document", "type"],
+    "debit_amount": ["debit", "withdrawal", "dr", "out", "payment", "paid", "amt", "amount"],
+    "credit_amount": ["credit", "deposit", "cr", "in", "receipt", "received", "refund", "amt", "amount"],
+    "running_balance": ["balance", "bal", "cum", "closing", "carried", "brought", "outstanding"]
+}
+
+
+def normalize_header_text(header: str) -> str:
+    if not header:
+        return ""
+    text = str(header).strip().lower()
+    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def infer_header_field(header: str) -> Optional[str]:
+    normalized = normalize_header_text(header)
+    if not normalized:
+        return None
+
+    if any(token in normalized for token in ["transaction date", "doc date", "due date", "posting date", "value date", "payment date", "book date", "date", "due", "posting", "txn", "trans", "value", "booking", "payment", "dt"]):
+        return "transaction_date"
+
+    if any(token in normalized for token in ["closing balance", "running balance", "cum bal", "cum balance", "balance", "outstanding", "bal"]):
+        return "running_balance"
+
+    if any(token in normalized for token in ["credit", "deposit", "cr", "in", "receipt", "received", "refund"]):
+        return "credit_amount"
+
+    if any(token in normalized for token in ["debit", "withdrawal", "dr", "out", "payment", "paid", "amt", "amount"]):
+        return "debit_amount"
+
+    if any(token in normalized for token in ["description", "particular", "detail", "narrative", "remark", "memo", "text", "assignment", "reference", "invoice", "document", "type", "key", "number", "no"]):
+        return "description"
+
+    return None
+
 
 class SemanticMapper:
     """Retrieval-augmented semantic mapper for statement columns."""
@@ -82,6 +123,10 @@ class SemanticMapper:
         header_clean = header.strip()
         if not header_clean:
             return None, 0.0
+
+        inferred_field = infer_header_field(header_clean)
+        if inferred_field:
+            return inferred_field, 1.0
             
         # 1. Compute embedding-based similarity first if model is loaded
         if self.model:

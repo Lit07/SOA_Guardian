@@ -106,3 +106,34 @@ def test_sigma_layout_identification():
     finally:
         if os.path.exists(csv_path):
             os.remove(csv_path)
+
+
+def test_cocacola_mapping_prefers_document_type_over_reference_key():
+    """Verify the workbook mapping resolves the description field from the document-type column instead of the reference key."""
+    mapping_path = "Internship Problem Statement Docs/SOA-Mapping.xlsx"
+    registry = VendorRegistry(mappings_path=mapping_path)
+
+    coca_key = next(
+        (key for key, config in registry.vendors.items() if config.get("official_name", "").lower().startswith("coca")),
+        None
+    )
+
+    assert coca_key is not None
+    assert registry.vendors[coca_key]["columns"]["description"] == "Document Type"
+
+
+def test_real_cocacola_statement_uses_mapping_workbook():
+    """Verify the real Coca-Cola workbook is parsed to transactions using the provided mapping workbook."""
+    statement_path = "Internship Problem Statement Docs/SoAs/Coca-Cola Singapore Beverages Pte Ltd.xlsx"
+    mapping_path = "Internship Problem Statement Docs/SOA-Mapping.xlsx"
+
+    canonical = process_statement(
+        statement_path,
+        custom_mapping_path=mapping_path,
+        original_filename=os.path.basename(statement_path)
+    )
+
+    assert canonical.header_mapping
+    assert len(canonical.transactions) > 0
+    assert canonical.output_format_columns
+    assert canonical.transactions[0].transaction_date

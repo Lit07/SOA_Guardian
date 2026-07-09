@@ -1,6 +1,7 @@
 import os
 import json
 from typing import List, Dict, Any, Optional, Tuple
+from soa_guardian.mapping import infer_header_field
 
 class VendorRegistry:
     """Intelligent database registry to auto-identify vendor profiles in unnamed files."""
@@ -112,24 +113,97 @@ class VendorRegistry:
                             cell_val = ws.cell(row=row_idx, column=h_idx + 1).value
                             mapping["output_format_columns"][h_name] = str(cell_val).strip() if cell_val else ""
                             
-                        # Resolve standard canonical fields using fuzzy column name heuristics
-                        date_h = next((h for h in target_headers if "date" in h.lower()), None)
-                        desc_h = next((h for h in target_headers if "invoice" in h.lower() or "desc" in h.lower() or "particular" in h.lower()), None)
-                        amt_h = next((h for h in target_headers if "amount" in h.lower() or "sum" in h.lower() or "val" in h.lower()), None)
-                        
-                        if date_h and mapping["output_format_columns"].get(date_h):
-                            mapping["columns"]["transaction_date"] = mapping["output_format_columns"][date_h]
-                        if desc_h and mapping["output_format_columns"].get(desc_h):
-                            mapping["columns"]["description"] = mapping["output_format_columns"][desc_h]
-                        if amt_h and mapping["output_format_columns"].get(amt_h):
-                            val = mapping["output_format_columns"][amt_h]
-                            if "/" in val:
-                                parts = [p.strip() for p in val.split("/")]
-                                mapping["columns"]["debit_amount"] = parts[0]
-                                mapping["columns"]["credit_amount"] = parts[1]
+                        # Resolve standard canonical fields using field scoring over the workbook values.
+                        def score_value_for_field(value: str, field: str) -> float:
+                            if not value:
+                                return 0.0
+                            text = str(value).strip().lower()
+                            if not text:
+                                return 0.0
+
+                            if field == "transaction_date":
+                                if any(token in text for token in ["transaction date", "txn date", "posting date", "doc date", "value date", "booking date", "payment date", "due date", "date", "posting", "due"]):
+                                    return 1.0
+                                return 0.0
+
+                            if field == "description":
+                                if any(token in text for token in ["document type", "doc type", "description", "particular", "detail", "text", "narrative", "memo", "remarks", "assignment"]):
+                                    return 1.0
+                                if any(token in text for token in ["reference", "reference key", "invoice", "document no", "invoice no"]):
+                                    return 0.35
+                                return 0.0
+
+                            if field == "debit_amount":
+                                if any(token in text for token in ["debit", "withdrawal", "dr", "amount dr", "payments", "paid", "out"]):
+                                    return 1.0
+                                if any(token in text for token in ["amount", "amt", "sum", "value"]):
+                                    return 0.75
+                                return 0.0
+
+                            if field == "credit_amount":
+                                if any(token in text for token in ["credit", "deposit", "cr", "amount cr", "receipts", "received", "refund", "in"]):
+                                    return 1.0
+                                if any(token in text for token in ["amount", "amt", "sum", "value"]):
+                                    return 0.75
+                                return 0.0
+
+                            if field == "running_balance":
+                                if any(token in text for token in ["balance", "cum bal", "cum balance", "running balance", "bal", "closing", "outstanding"]):
+                                    return 1.0
+                                return 0.0
+
+                            return 0.0
+
+                        field_scores = {}
+                        for h_name in target_headers:
+                            raw_value = mapping["output_format_columns"].get(h_name, "")
+                            if not raw_value:
+                                continue
+                            for field in ["transaction_date", "description", "debit_amount", "credit_amount", "running_balance"]:
+                                score = score_value_for_field(raw_value, field)
+                                if score > 0.0:
+                                    field_scores.setdefault(h_name, {})[field] = score
+
+                        for h_name, scores in field_scores.items():
+                            if not scores:
+                                continue
+                            best_field = max(scores, key=scores.get)
+                            best_score = scores[best_field]
+                            if best_score < 0.5:
+                                continue
+                            if best_field == "debit_amount":
+                                mapping["columns"]["debit_amount"] = mapping["output_format_columns"][h_name]
+                                mapping["columns"].setdefault("credit_amount", mapping["output_format_columns"][h_name])
+                            elif best_field == "credit_amount":
+                                mapping["columns"]["credit_amount"] = mapping["output_format_columns"][h_name]
+                                mapping["columns"].setdefault("debit_amount", mapping["output_format_columns"][h_name])
                             else:
-                                mapping["columns"]["debit_amount"] = val
-                                mapping["columns"]["credit_amount"] = val
+                                mapping["columns"][best_field] = mapping["output_format_columns"][h_name]
+
+                        if "transaction_date" not in mapping["columns"]:
+                            for h_name in target_headers:
+                                raw_value = mapping["output_format_columns"].get(h_name, "")
+                                if not raw_value:
+                                    continue
+                                if "date" in str(raw_value).lower() or "posting" in str(raw_value).lower():
+                                    mapping["columns"]["transaction_date"] = raw_value
+                                    break
+
+                        if "description" not in mapping["columns"]:
+                            for h_name in target_headers:
+                                raw_value = mapping["output_format_columns"].get(h_name, "")
+                                if not raw_value:
+                                    continue
+                                if any(token in str(raw_value).lower() for token in ["description", "particular", "detail", "text", "narrative", "type", "assignment"]):
+                                    mapping["columns"]["description"] = raw_value
+                                    break
+                        if "debit_amount" not in mapping["columns"] and "credit_amount" not in mapping["columns"]:
+                            for h_name in target_headers:
+                                raw_value = mapping["output_format_columns"].get(h_name, "")
+                                if raw_value and "amount" in str(raw_value).lower():
+                                    mapping["columns"]["debit_amount"] = raw_value
+                                    mapping["columns"]["credit_amount"] = raw_value
+                                    break
                             
                         excel_vendors[vendor_key] = mapping
                     return excel_vendors
@@ -169,25 +243,39 @@ class VendorRegistry:
                     if alias_norm in text_norm or (filename_norm and alias_norm in filename_norm):
                         return key, config
                     
-        # Pass 2: Fuzzy header structure overlap
+        # Pass 2: Fuzzy header structure overlap with exact-string preference
         best_key = None
         best_score = 0.0
         
-        cleaned_extracted = [h.strip().lower() for h in extracted_headers if h.strip()]
+        cleaned_extracted = [h.strip() for h in extracted_headers if h.strip()]
         
         if cleaned_extracted:
             for key, config in self.vendors.items():
-                vendor_headers = [h.strip().lower() for h in config.get("columns", {}).values()]
+                vendor_headers = [h.strip() for h in config.get("columns", {}).values()]
                 if not vendor_headers:
                     continue
-                    
-                matches = 0
+
+                total_score = 0.0
                 for vh in vendor_headers:
-                    # Treat as matched if exact match or substring overlaps are found
-                    if any(vh in eh or eh in vh for eh in cleaned_extracted):
-                        matches += 1
-                        
-                score = matches / len(vendor_headers)
+                    best_field_score = 0.0
+                    for eh in cleaned_extracted:
+                        cell_norm = re.sub(r'[^a-z0-9]', '', eh.lower())
+                        header_norm = re.sub(r'[^a-z0-9]', '', vh.lower())
+                        if not cell_norm or not header_norm:
+                            continue
+                        if cell_norm == header_norm:
+                            best_field_score = 1.0
+                            break
+                        if cell_norm in header_norm or header_norm in cell_norm:
+                            best_field_score = max(best_field_score, 0.85)
+                            continue
+                        field1 = infer_header_field(eh)
+                        field2 = infer_header_field(vh)
+                        if field1 and field2 and field1 == field2:
+                            best_field_score = max(best_field_score, 0.60)
+                    total_score += best_field_score
+
+                score = total_score / len(vendor_headers)
                 if score > best_score:
                     best_score = score
                     best_key = key

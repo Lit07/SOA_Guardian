@@ -9,7 +9,7 @@ from soa_guardian.planner import plan_extraction, should_run_retrieval
 from soa_guardian.retrieval import retrieve_relevant_pages
 from soa_guardian.extractors import PDFExtractor, ExcelExtractor
 from soa_guardian.grouping import group_wrapped_rows
-from soa_guardian.mapping import SemanticMapper
+from soa_guardian.mapping import SemanticMapper, infer_header_field
 from soa_guardian.recovery import merge_split_headers
 from soa_guardian.validator import parse_currency, repair_and_triage
 from soa_guardian.vendor_registry import VendorRegistry
@@ -128,7 +128,50 @@ def fuzzy_match_headers(h1: str, h2: str) -> bool:
         s = h.lower().strip()
         s = re.sub(r'\bno\b|\bno\.\b|\bnum\b', 'number', s)
         return re.sub(r'[^a-z0-9]', '', s)
-        
+
+    c1 = normalize_header(h1)
+    c2 = normalize_header(h2)
+    if not c1 or not c2:
+        return False
+
+    field1 = infer_header_field(h1)
+    field2 = infer_header_field(h2)
+    if field1 and field2 and field1 == field2:
+        return True
+
+    if c1 == c2:
+        return True
+    if len(c1) >= 3 and c1 in c2:
+        return True
+    if len(c2) >= 3 and c2 in c1:
+        return True
+
+    short_map = {
+        "doc": "document",
+        "ref": "reference",
+        "txn": "transaction",
+        "trans": "transaction",
+        "tran": "transaction",
+        "amt": "amount",
+        "bal": "balance",
+        "desc": "description",
+        "particular": "description",
+        "duedate": "date",
+        "postingdate": "date",
+        "docdate": "date"
+    }
+    for k, v in short_map.items():
+        if (k in c1 and v in c2) or (k in c2 and v in c1):
+            return True
+    return False
+
+
+def match_header_strict(h1: str, h2: str) -> bool:
+    def normalize_header(h: str) -> str:
+        s = h.lower().strip()
+        s = re.sub(r'\bno\b|\bno\.\b|\bnum\b', 'number', s)
+        return re.sub(r'[^a-z0-9]', '', s)
+
     c1 = normalize_header(h1)
     c2 = normalize_header(h2)
     if not c1 or not c2:
@@ -139,22 +182,15 @@ def fuzzy_match_headers(h1: str, h2: str) -> bool:
         return True
     if len(c2) >= 3 and c2 in c1:
         return True
-        
-    short_map = {
-        "doc": "document",
-        "ref": "reference",
-        "txn": "transaction",
-        "trans": "transaction",
-        "tran": "transaction",
-        "amt": "amount",
-        "bal": "balance",
-        "desc": "description",
-        "particular": "description"
-    }
-    for k, v in short_map.items():
-        if (k in c1 and v in c2) or (k in c2 and v in c1):
-            return True
     return False
+
+
+def semantic_header_match(h1: str, h2: str) -> bool:
+    field1 = infer_header_field(h1)
+    field2 = infer_header_field(h2)
+    if field1 and field2:
+        return field1 == field2
+    return match_header_strict(h1, h2)
 
 from typing import Optional
 
@@ -282,16 +318,49 @@ def process_statement(
         if not header_found:
             for r_idx, row in enumerate(page_grid):
                 row_clean = [cell.strip() for cell in row]
+
+                if not any(row_clean):
+                    continue
+
+                # Prefer rows that look like headers: contain date/description/amount-like terms
+                has_header_like_terms = any(
+                    infer_header_field(cell) is not None or fuzzy_match_headers(cell, "date") or fuzzy_match_headers(cell, "balance") or fuzzy_match_headers(cell, "amount")
+                    for cell in row_clean
+                )
+
+                if not has_header_like_terms:
+                    continue
                 
                 # Check if we already identified the vendor by text aliases
+                def match_header_score(cell: str, expected_header: str) -> float:
+                    if not cell or not expected_header:
+                        return 0.0
+                    cell_norm = re.sub(r'[^a-z0-9]', '', cell.strip().lower())
+                    expected_norm = re.sub(r'[^a-z0-9]', '', expected_header.strip().lower())
+                    if not cell_norm or not expected_norm:
+                        return 0.0
+                    if cell_norm == expected_norm:
+                        return 1.0
+                    if cell_norm in expected_norm or expected_norm in cell_norm:
+                        return 0.85
+                    if infer_header_field(cell) and infer_header_field(expected_header):
+                        if infer_header_field(cell) == infer_header_field(expected_header):
+                            return 0.60
+                    return 0.0
+
                 if vendor_config:
                     vendor_cols = vendor_config["columns"]
                     mapping = {}
                     for field, v_header in vendor_cols.items():
+                        best_score = 0.0
+                        best_idx = None
                         for c_idx, cell in enumerate(row_clean):
-                            if fuzzy_match_headers(cell, v_header):
-                                mapping[field] = c_idx
-                                break
+                            score = match_header_score(cell, v_header)
+                            if score > best_score:
+                                best_score = score
+                                best_idx = c_idx
+                        if best_idx is not None and best_score > 0.0:
+                            mapping[field] = best_idx
                     if "transaction_date" in mapping and ("description" in mapping or any(f in mapping for f in ["debit_amount", "credit_amount", "running_balance"])):
                         if "running_balance" not in mapping:
                             for c_idx, cell in enumerate(row_clean):
@@ -310,14 +379,21 @@ def process_statement(
                     # Fallback: scan all registered vendors to see if this row matches their header names
                     matched_vendor_key = None
                     matched_mapping = {}
-                    best_match_count = 0
+                    best_score = 0.0
                     for key, config in registry.vendors.items():
                         mapping = {}
+                        total_score = 0.0
                         for field, v_header in config["columns"].items():
+                            best_field_score = 0.0
+                            best_idx = None
                             for c_idx, cell in enumerate(row_clean):
-                                if fuzzy_match_headers(cell, v_header):
-                                    mapping[field] = c_idx
-                                    break
+                                score = match_header_score(cell, v_header)
+                                if score > best_field_score:
+                                    best_field_score = score
+                                    best_idx = c_idx
+                            if best_idx is not None and best_field_score > 0.0:
+                                mapping[field] = best_idx
+                                total_score += best_field_score
                         if "transaction_date" in mapping:
                             actual_match_count = len(mapping)
                             min_required = max(3, len(config["columns"]) - 1) if len(config["columns"]) >= 3 else len(config["columns"])
@@ -332,13 +408,13 @@ def process_statement(
                                         if idx not in mapping.values():
                                             mapping["description"] = idx
                                             break
-                                match_count = len(mapping)
-                                if match_count > best_match_count:
-                                    best_match_count = match_count
+                                normalized_score = total_score / len(config["columns"])
+                                if normalized_score > best_score:
+                                    best_score = normalized_score
                                     matched_vendor_key = key
                                     matched_mapping = mapping
                                 
-                    if matched_vendor_key:
+                    if matched_vendor_key and best_score >= 0.80:
                         vendor_key = matched_vendor_key
                         vendor_config = registry.vendors[vendor_key]
                         header_mapping = matched_mapping
@@ -353,7 +429,12 @@ def process_statement(
                             
                 # Fallback: check standard semantic mapping (for unregistered vendors)
                 if not header_found:
-                    mapping = mapper.map_columns(row)
+                    mapping = {}
+                    for c_idx, cell in enumerate(row_clean):
+                        field = infer_header_field(cell)
+                        if field and field not in mapping:
+                            mapping[field] = c_idx
+
                     has_date = "transaction_date" in mapping
                     has_desc = "description" in mapping
                     has_financial = any(f in mapping for f in ["debit_amount", "credit_amount", "running_balance"])
@@ -401,7 +482,7 @@ def process_statement(
                                 mapping = {}
                                 for field, v_header in vendor_config["columns"].items():
                                     for c_idx, cell in enumerate(merged_headers):
-                                        if cell.strip().lower() == v_header.lower() or v_header.lower() in cell.strip().lower():
+                                        if semantic_header_match(cell, v_header):
                                             mapping[field] = c_idx
                                             break
                                 header_mapping = mapping
@@ -452,10 +533,21 @@ def process_statement(
         
         # Convert grouped rows to transaction dictionaries
         for row in grouped_body_rows:
-            date_idx = header_mapping["transaction_date"]
-            if date_idx >= len(row):
+            date_idx = header_mapping.get("transaction_date")
+            if date_idx is None or date_idx >= len(row):
                 continue
             date_val = row[date_idx].strip()
+
+            # If the mapped date column is not actually date-like, scan the row for the first date-like cell.
+            if not date_val or not re.match(r'^\d{1,2}[/\.-]\d{1,2}[/\.-]\d{2,4}$', date_val) and not re.match(r'^\d{4}[/\.-]\d{1,2}[/\.-]\d{1,2}$', date_val):
+                date_val = ""
+                date_idx = None
+                for idx, cell in enumerate(row):
+                    cell_val = cell.strip()
+                    if re.match(r'^\d{1,2}[/\.-]\d{1,2}[/\.-]\d{2,4}$', cell_val) or re.match(r'^\d{4}[/\.-]\d{1,2}[/\.-]\d{1,2}$', cell_val):
+                        date_idx = idx
+                        date_val = cell_val
+                        break
             
             # Verify it is a valid date (DD/MM/YY, DD/MM/YYYY, DD.MM.YY, DD-MM-YYYY, YYYY-MM-DD)
             is_valid_date = False
@@ -474,10 +566,47 @@ def process_statement(
                 continue
                 
             # Populate fields
-            desc_val = row[header_mapping["description"]].strip() if ("description" in header_mapping and header_mapping["description"] < len(row)) else ""
-            debit_val = row[header_mapping["debit_amount"]].strip() if ("debit_amount" in header_mapping and header_mapping["debit_amount"] < len(row)) else "0.0"
-            credit_val = row[header_mapping["credit_amount"]].strip() if ("credit_amount" in header_mapping and header_mapping["credit_amount"] < len(row)) else "0.0"
-            bal_val = row[header_mapping["running_balance"]].strip() if ("running_balance" in header_mapping and header_mapping["running_balance"] < len(row)) else "0.0"
+            desc_idx = header_mapping.get("description")
+            if desc_idx is None or desc_idx >= len(row):
+                desc_idx = None
+                for idx, cell in enumerate(row):
+                    if idx in header_mapping.values():
+                        continue
+                    val = cell.strip()
+                    if not val:
+                        continue
+                    if re.match(r'^\d{1,2}[/\.-]\d{1,2}[/\.-]\d{2,4}$', val) or re.match(r'^\d{4}[/\.-]\d{1,2}[/\.-]\d{1,2}$', val):
+                        continue
+                    if parse_currency(val, locale) != 0.0 and re.fullmatch(r'[-+]?\d[\d,\.\s]*', val):
+                        continue
+                    if len(val) >= 2:
+                        desc_idx = idx
+                        break
+            desc_val = row[desc_idx].strip() if desc_idx is not None and desc_idx < len(row) else ""
+
+            debit_val = "0.0"
+            credit_val = "0.0"
+            for field in ["debit_amount", "credit_amount"]:
+                idx = header_mapping.get(field)
+                if idx is not None and idx < len(row):
+                    raw_val = row[idx].strip()
+                    if not raw_val:
+                        continue
+                    parsed_val = parse_currency(raw_val, locale)
+                    if parsed_val == 0.0:
+                        if field == "debit_amount":
+                            debit_val = raw_val
+                        else:
+                            credit_val = raw_val
+                        continue
+
+                    if field == "debit_amount":
+                        debit_val = str(abs(parsed_val))
+                    else:
+                        credit_val = str(abs(parsed_val))
+
+            bal_idx = header_mapping.get("running_balance")
+            bal_val = row[bal_idx].strip() if bal_idx is not None and bal_idx < len(row) else "0.0"
             
             # Extract additional fields (all columns not mapped to canonical fields)
             mapped_indices = {v for k, v in header_mapping.items() if v is not None}
