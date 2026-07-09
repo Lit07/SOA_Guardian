@@ -6,7 +6,7 @@
     <title>SoA Guardian — Reconciliation Dashboard</title>
     <!-- Modern Typography Font -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="index.css?v=2">
+    <link rel="stylesheet" href="index.css?v=3">
     <style>
         /* Unified Single-Page layout styles */
         .file-inputs-row {
@@ -113,7 +113,7 @@
         <!-- Sidebar containing History logs -->
         <aside class="sidebar">
             <div class="brand">
-                <div class="brand-icon">🛡️</div>
+                <div class="brand-icon">S</div>
                 <h2>SoA Guardian</h2>
             </div>
             
@@ -150,7 +150,7 @@
                             <div class="file-input-card">
                                 <label>1. Statement of Account Document (Required)</label>
                                 <div class="file-drop-area" id="soa-drop-area">
-                                    <span class="area-icon">📄</span>
+                                    <span class="area-icon">[DOC]</span>
                                     <p id="soa-file-label">Drag & drop SOA or browse</p>
                                     <span class="help-text">PDF, CSV, or XLSX formats</span>
                                     <input type="file" id="file-input" accept=".pdf,.csv,.xlsx" required style="display:none;">
@@ -161,7 +161,7 @@
                             <div class="file-input-card">
                                 <label>2. Mappings Registry Sheet (Optional)</label>
                                 <div class="file-drop-area" id="mapping-drop-area">
-                                    <span class="area-icon">🗺️</span>
+                                    <span class="area-icon">[MAP]</span>
                                     <p id="mapping-file-label">Drag & drop mappings or browse</p>
                                     <span class="help-text">Excel .xlsx containing 'Final_mappings'</span>
                                     <input type="file" id="mapping-file-input" name="mapping_file" accept=".xlsx" style="display:none;">
@@ -172,7 +172,7 @@
                             <div class="file-input-card">
                                 <label>3. Target Output Template (Optional)</label>
                                 <div class="file-drop-area" id="template-drop-area">
-                                    <span class="area-icon">📊</span>
+                                    <span class="area-icon">[TPL]</span>
                                     <p id="template-file-label">Drag & drop template or browse</p>
                                     <span class="help-text">Excel .xlsx target format template</span>
                                     <input type="file" id="template-file-input" name="template_file" accept=".xlsx" style="display:none;">
@@ -201,7 +201,7 @@
                                 <label for="flat-table" class="checkbox-label" style="font-size: 13px;">Export as Flat Ledger (no headers/logs tabs)</label>
                             </div>
                             <div class="form-group" style="justify-content: flex-end; margin-top: 16px;">
-                                <button type="submit" class="btn btn-primary btn-large" id="btn-submit-upload" style="width:100%; height:44px;">🛡️ Start Safe Ingestion & Verification</button>
+                                <button type="submit" class="btn btn-primary btn-large" id="btn-submit-upload" style="width:100%; height:44px;">Start Safe Ingestion & Verification</button>
                             </div>
                         </div>
                     </form>
@@ -251,7 +251,7 @@
                             <div class="meta-item"><span class="meta-label">Exchange Rate:</span> <span id="meta-rate">—</span></div>
                         </div>
                         <div class="warning-banner" id="warning-banner" style="display:none; margin-top:16px;">
-                            <strong>⚠️ Anomalies & Warnings:</strong>
+                            <strong>Anomalies & Warnings:</strong>
                             <ul id="warning-list" style="margin: 6px 0 0 16px; padding: 0;"></ul>
                         </div>
                     </div>
@@ -262,11 +262,11 @@
                             <h3>Reconciled Transaction Ledger</h3>
                             <div class="ledger-actions">
                                 <label class="checkbox-label" style="margin-right: 16px; display: inline-flex; align-items: center; gap: 8px; color: var(--primary-color); font-weight: 600;">
-                                    <input type="checkbox" id="chk-filter-issues" style="width: 15px; height: 15px;"> ⚠️ Show Issues Only
+                                    <input type="checkbox" id="chk-filter-issues" style="width: 15px; height: 15px;"> Show Issues Only
                                 </label>
-                                <span class="tip-edit">💡 Double-click cells to edit and trigger real-time math validation</span>
-                                <button class="btn btn-primary" id="btn-export-formatted">📥 Download Statement Report (XLSX)</button>
-                                <button class="btn btn-secondary" id="btn-export-flat" style="display:none;">📥 Download Flat Ledger</button>
+                                <span class="tip-edit">Note: Double-click cells to edit and trigger real-time math validation</span>
+                                <button class="btn btn-primary" id="btn-export-formatted">Download Statement Report (XLSX)</button>
+                                <button class="btn btn-secondary" id="btn-export-flat" style="display:none;">Download Flat Ledger</button>
                             </div>
                         </div>
                         <div class="table-container">
@@ -287,7 +287,7 @@
         <!-- Right Side Panel: Audit Logs Drawer -->
         <aside class="audit-drawer" id="audit-drawer">
             <div class="drawer-header">
-                <h3>🔍 Validation Audit Log</h3>
+                <h3>Validation Audit Log</h3>
                 <button class="btn-close-drawer" id="btn-close-drawer">✕</button>
             </div>
             
@@ -436,7 +436,7 @@
             
             const submitBtn = document.getElementById('btn-submit-upload');
             submitBtn.disabled = true;
-            submitBtn.innerText = "🛡️ Starting Invariant Verification Loop...";
+            submitBtn.innerText = "Starting Invariant Verification Loop...";
             
             const formData = new FormData(uploadForm);
             formData.append('file', fileInput.files[0]);
@@ -472,7 +472,7 @@
                 alert(`Reconciliation Pipeline Error: ${err.message}`);
             } finally {
                 submitBtn.disabled = false;
-                submitBtn.innerText = "🛡️ Start Safe Ingestion & Verification";
+                submitBtn.innerText = "Start Safe Ingestion & Verification";
             }
         });
 
@@ -648,7 +648,7 @@
                             </span>
                         </td>
                         <td>
-                            <button class="btn-action" onclick="triggerEditRow(${tx.id})">✏️ Edit</button>
+                            <button class="btn-action" onclick="triggerEditRow(${tx.id})">Edit</button>
                         </td>
                     </tr>`;
                     return rowHtml;
@@ -667,7 +667,7 @@
                     <div class="audit-item success">
                         <div class="audit-field">${rep.field_location || 'Transaction Field'}</div>
                         <div class="audit-change">
-                            <span class="old-val">${rep.raw_text}</span> ➔ 
+                            <span class="old-val">${rep.raw_text}</span> -> 
                             <span class="new-val">${rep.corrected_value}</span>
                         </div>
                         <div class="audit-reason">${rep.reason}</div>

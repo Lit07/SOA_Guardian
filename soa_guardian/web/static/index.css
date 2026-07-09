@@ -77,8 +77,17 @@ body {
 }
 
 .brand-icon {
-    font-size: 28px;
-    filter: drop-shadow(0 0 10px rgba(14, 165, 233, 0.3));
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 16px rgba(14, 165, 233, 0.35);
 }
 
 .brand h2 {
